@@ -1,2 +1,2 @@
 # clarius_data_processing
-Unzip and convert RF data from Clarius devices
+Unzip and convert the .raw RF data files from Clarius devices
