@@ -27,7 +27,11 @@ class CData:
                     shell=True)
                 os.remove(os.path.join(self.folder_name, item))
         self.files = ls_file(self.folder_name)
-        self.num_frames = self.get_rf()[0]['frames']
+        try:
+            self.num_frames = self.get_rf()[0]['frames']
+        except Exception as e:
+            print(e)
+            self.num_frames = 1
 
     def get_rf(self):
         for item in self.files:
@@ -63,27 +67,22 @@ class CData:
             start_frame = 0
             frame = self.num_frames
         for f in range(frame):
-            if os.path.isfile(self.folder_name + "/" + name + " frame {}.csv".format(start_frame + f)):
+            file_name = name + " frame {}.csv".format(start_frame + f)
+            if os.path.isfile(self.folder_name + "/" + file_name):
                 print(".CSV RF data file already exists")
             else:
                 scan_info_header = self.__yaml_header()
-                np.savetxt(self.folder_name + "/" + name + " frame {}.csv".format(start_frame + f),
-                        np.transpose(data[:, :, f]), delimiter=",", header=scan_info_header)
+                np.savetxt(self.folder_name + "/" + file_name,
+                           np.transpose(data[:, :, f]), delimiter=",", header=scan_info_header)
                 print(round((f + 1) / frame * 100, 0), '%')
 
     def csv_all_frames(self):
         self.csv_out(self.num_frames)
 
-    # returns the details of the probe and the scan by reading the .yml file downloaded from Clarius Cast
-    # the output is separated by commas to work with .CSV format
+    # Describes the parameters of the scan. Creates a header for the CSV file using the yaml file information. The
+    # output is separated by commas to work with .CSV format
     def __yaml_header(self):
-        folder_path = self.folder_name
-        rf_yml_file_name = ''
-        for item in self.files:
-            if 'rf.yml' in item:
-                rf_yml_file_name = item.title()
-        with open(folder_path + "/" + rf_yml_file_name) as file:
-            yaml_info = yaml.safe_load(file)
+        yaml_info = self.__yaml_info()
         imaging_depth = yaml_info["imaging depth"]
         focal_depth = yaml_info["focal depth"]
         tgc = yaml_info["tgc"]
@@ -93,5 +92,33 @@ class CData:
         for depth in tgc:
             for key in depth:
                 full_header = full_header + key + ","
-
         return full_header
+
+    # Returns the details of the probe and the scan by reading the .yml file downloaded from Clarius Cast
+    def __yaml_info(self):
+        folder_path = self.folder_name
+        rf_yml_file_name = ''
+        for item in self.files:
+            if 'rf.yml' in item:
+                rf_yml_file_name = item.title()
+        with open(folder_path + "/" + rf_yml_file_name) as file:
+            yaml_info = yaml.safe_load(file)
+        return yaml_info
+
+    def calibration_csv(self):
+        hdr, timestamps, data = self.get_rf()
+        name = self.filename[0:len(self.filename) - 4]
+        start_frame = self.num_frames
+        yaml_info = self.__yaml_info()
+        scan_info_header = self.__yaml_header()
+        attenuation = '0_00'
+        if '0_54' in name:
+            attenuation = '0_54'
+        elif '1_30' in name:
+            attenuation = '1_30'
+        file_name = "D{} F{} {}.csv".format(yaml_info["imaging depth"], yaml_info["focal depth"], attenuation)
+        if os.path.isfile(self.folder_name + "/" + file_name):
+            print(".CSV RF data file already exists")
+        else:
+            np.savetxt(self.folder_name + "/" + file_name,
+                       np.transpose(data[:, :, start_frame - 1]), delimiter=",", header=scan_info_header)
