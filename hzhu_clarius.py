@@ -14,11 +14,19 @@ from hzhu_gen import *
 # be in .TAR format initially. It will be unpacked into .RAW, .YAML, and .TGC files automatically
 # when a new CData object is created.
 class CData:
-    def __init__(self, folder_path, filename, lzop_path=os.getcwd()):
+    def __init__(self, folder_path, filename, stim_info, lzop_path=os.getcwd()):
         self.folder_path = folder_path
         self.filename = filename
         self.lzop_path = lzop_path
         self.folder_name = os.path.join(self.folder_path, *filename.split('.')[0:-1])
+        self.project_site = stim_info["project_site"]
+        self.maternal_id = stim_info["maternal_id"]
+        self.gestational_age = stim_info["gestational_age"]
+        self.fetal_num = "{}B{}".format(stim_info["maternal_id"], stim_info["fetal_num"])
+        self.image_num = stim_info["image_num"]
+        self.stim_filename = "_".join([self.project_site, self.maternal_id, self.fetal_num, self.gestational_age,
+                                  *self.__remove_file_type(self.filename), self.image_num, stim_info["raw_or_rend"]])
+        self.folder_name = os.path.join(self.folder_path, self.stim_filename)
         shutil.unpack_archive(os.path.join(self.folder_path, filename), self.folder_name)
         self.files = ls_file(self.folder_name)
         for item in self.files:
@@ -68,7 +76,7 @@ class CData:
     # an area of interested. The first few frames are often used for landmarking
     def bmode_csv_out(self, frame):
         data = self.data
-        name = self.__remove_csv(self.filename)
+        name = self.__remove_file_type(self.filename)
         start_frame = self.num_frames - frame
         # Prevents the user from asking for too many frames. Displays them all instead.
         if start_frame < 0:
@@ -76,11 +84,11 @@ class CData:
             frame = self.num_frames
         for f in range(frame):
             file_name = name + " frame {}.csv".format(start_frame + f)
-            if os.path.isfile(self.folder_name + "/" + file_name):
+            if os.path.isfile(os.path.join(self.folder_name, file_name)):
                 print(".CSV RF data file already exists")
             else:
                 scan_info_header = self.__yaml_header()
-                np.savetxt(self.folder_name + "/" + file_name,
+                np.savetxt(os.path.join(self.folder_name, file_name),
                            np.transpose(data[:, :, f]), delimiter=",", header=scan_info_header)
                 print(round((f + 1) / frame * 100, 0), '%')
 
@@ -110,20 +118,23 @@ class CData:
         for item in self.files:
             if 'rf.yml' in item:
                 rf_yml_file_name = item.title()
-        with open(folder_path + "/" + rf_yml_file_name) as file:
+        with open(os.path.join(folder_path, rf_yml_file_name)) as file:
             yaml_info = yaml.safe_load(file)
         return yaml_info
 
     # Generates a name for the calibration file by looking for 0_54 or 1_30 in the file name. These values come
     # from the two different regions of the attenuation phantom.
     def __cal_details(self):
-        name = self.__remove_csv(self.filename)
+        # name = self.__remove_file_type(self.filename)
+        name = self.stim_filename
         yaml_info = self.__yaml_info()
         attenuation = '0_00'
         if '0_54' in name:
             attenuation = '0_54'
         elif '1_30' in name:
             attenuation = '1_30'
+        else:
+            print("Incorrect Attenuation Values")
         file_name = "D{} F{}".format(yaml_info["imaging depth"], yaml_info["focal depth"])
         return file_name, attenuation
 
@@ -137,9 +148,9 @@ class CData:
     # Search must be a list even if it is size one
     def __cal_copy(self, search):
         filename, attenuation = self.__cal_details()
-        cal_path = self.folder_path + "/Ultrasound Calibration Files"
-        filename_path = cal_path + "/" + filename
-        attenuation_path = filename_path + "/" + attenuation
+        cal_path = os.path.join(self.folder_path, "Ultrasound Calibration Files")
+        filename_path = os.path.join(cal_path, filename)
+        attenuation_path = os.path.join(filename_path, attenuation)
         if not os.path.exists(cal_path):
             os.mkdir(cal_path)
         if not os.path.exists(filename_path):
@@ -149,7 +160,7 @@ class CData:
         for s in search:
             for item in ls_file(self.folder_name):
                 if s in item:
-                    shutil.copyfile(self.folder_name + "/" + item, attenuation_path + "/" + filename + " " + s)
+                    shutil.copyfile(os.path.join(self.folder_name, item), os.path.join(attenuation_path, filename + " " + s))
 
     #  Copy yml files and renames them to match the calibration file with depth, focus, and attenuation values
     def cal_raw(self):
@@ -171,17 +182,17 @@ class CData:
         start_frame = self.num_frames
         scan_info_header = self.__yaml_header()
         filename = self.__cal_details()[0] + ".csv"
-        if os.path.isfile(self.folder_name + "/" + filename):
+        if os.path.isfile(os.path.join(self.folder_name, filename)):
             print(".CSV RF data file already exists")
         else:
-            np.savetxt(self.folder_name + "/" + filename,
+            np.savetxt(os.path.join(self.folder_name, filename),
                        np.transpose(data[:, :, start_frame - 1]), delimiter=",", header=scan_info_header)
 
     # Creates a CSV file with the depth and focus of the scan. If multiple scans are processed, it appends these
     # values to the bottom of the CSV.
     def __cal_val_csv(self):
         csv_title = "Ultrasound Depth and Focus"
-        file_name = self.folder_path + "/" + csv_title + ".csv"
+        file_name = os.path.join(self.folder_path, csv_title + ".csv")
         self.__add_cal_line(file_name)
 
     # Adds a new line to a CSV file. If this is the first line added to the CSV, it creates headers.
@@ -191,7 +202,7 @@ class CData:
             self.new_csv_line(file_name, header_vals, 'w')
         yaml_info = self.__yaml_info()
         depth, focus = yaml_info["imaging depth"], yaml_info["focal depth"]
-        csv_cal_vals = [self.__remove_affix(self.filename, 4), self.__remove_mm(depth), self.__remove_mm(focus)]
+        csv_cal_vals = [self.__remove_file_type(self.filename), self.__remove_mm(depth), self.__remove_mm(focus)]
         self.new_csv_line(file_name, csv_cal_vals)
 
     # Adds a new row to the end of a CSV file. Appends by default. Mode can be changed for write, create, etc
@@ -216,23 +227,22 @@ class CData:
                 closest_list = difference, lib_search
         if not closest_list:
             csv_title = "Ultrasound Depth and Focus Not Found"
-            file_name = self.folder_path + "/" + csv_title + ".csv"
+            file_name = os.path.join(self.folder_path, csv_title + ".csv")
             self.__add_cal_line(file_name)
-        print(max_diff)
-        print(closest_list)
 
     # Removes an affix of length "suffix_len" from the end of a filename. EG __remove_affix("text.csv", 4) -> "text"
     @staticmethod
-    def __remove_affix(file_name, suffix_len):
-        return file_name[0:len(file_name) - suffix_len]
+    def __remove_file_type(file_name):
+        return file_name.split('.')[0:-1]
 
     # Removes .CSV from the end of a filename.
     def __remove_csv(self, file_name):
-        return self.__remove_affix(file_name, 4)
+        return self.__remove_file_type(file_name)
 
     # Removes " mm" (including the space) from the end of a file name. EG "55.55 mm" -> "55.55"
-    def __remove_mm(self, measurement):
-        return self.__remove_affix(measurement, 3)
+    @staticmethod
+    def __remove_mm(measurement):
+        return measurement[0:-3]
 
     # Given the format for Depth and Focus, D94.50 mm F47.23 mm. Prints only the first number. EG returns 94.50
     @staticmethod
@@ -242,8 +252,8 @@ class CData:
     # Deletes the old CSV files that that show which calibration data is there and is still missing
     @staticmethod
     def csv_cleanup(scan_folder_path):
-        found_cal_files = scan_folder_path + "/" + "Ultrasound Depth and Focus.csv"
-        missing_cal_files = scan_folder_path + "/" + "Ultrasound Depth and Focus Not Found.csv"
+        found_cal_files = os.path.join(scan_folder_path, "Ultrasound Depth and Focus.csv")
+        missing_cal_files = os.path.join(scan_folder_path, "Ultrasound Depth and Focus Not Found.csv")
         if os.path.isfile(found_cal_files):
             os.remove(found_cal_files)
         if os.path.isfile(missing_cal_files):
