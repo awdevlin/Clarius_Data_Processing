@@ -1,5 +1,5 @@
 import shutil
-import subprocess
+from subprocess import run
 import numpy as np
 from scipy.signal import hilbert
 import matplotlib.pyplot as plt
@@ -19,19 +19,17 @@ class CData:
         self.filename = filename
         self.lzop_path = lzop_path
         self.folder_name = os.path.join(self.folder_path, *filename.split('.')[0:-1])
-        self.project_site = stim_info["project_site"]
-        self.maternal_id = stim_info["maternal_id"]
-        self.gestational_age = stim_info["gestational_age"]
-        self.fetal_num = "{}B{}".format(stim_info["maternal_id"], stim_info["fetal_num"])
-        self.image_num = stim_info["image_num"]
+        self.project_site, self.maternal_id, self.gestational_age, self.image_num = \
+            stim_info["project_site"], stim_info["maternal_id"], stim_info["gestational_age"], stim_info["image_num"]
+        self.fetal_num = "{0}B{1}".format(stim_info["maternal_id"], stim_info["fetal_num"])
         self.stim_filename = "_".join([self.project_site, self.maternal_id, self.fetal_num, self.gestational_age,
-                                  *self.__remove_file_type(self.filename), self.image_num, stim_info["raw_or_rend"]])
+                                       self.__remove_file_type(self.filename), self.image_num])
         self.folder_name = os.path.join(self.folder_path, self.stim_filename)
         shutil.unpack_archive(os.path.join(self.folder_path, filename), self.folder_name)
         self.files = ls_file(self.folder_name)
         for item in self.files:
             if '.raw.lzo' in item:
-                out = subprocess.run(
+                run(
                     '\"%s\\unzip_data.exe\" -d \"%s\"' % (self.lzop_path, os.path.join(self.folder_name, item)),
                     shell=True)
                 os.remove(os.path.join(self.folder_name, item))
@@ -74,23 +72,23 @@ class CData:
     # Generates a .CSV file from the b-mode data frames downloaded from the Clarius probe
     # Frames are generated in reverse order because the b-mode is paused when you see
     # an area of interested. The first few frames are often used for landmarking
-    def bmode_csv_out(self, frame):
+    def bmode_csv_out(self, total_frames):
         data = self.data
         name = self.__remove_file_type(self.filename)
-        start_frame = self.num_frames - frame
+        start_frame = self.num_frames - total_frames
         # Prevents the user from asking for too many frames. Displays them all instead.
         if start_frame < 0:
             start_frame = 0
-            frame = self.num_frames
-        for f in range(frame):
-            file_name = name + " frame {}.csv".format(start_frame + f)
+            total_frames = self.num_frames
+        for frame in range(total_frames):
+            file_name = name + " frame {}.csv".format(start_frame + frame)
             if os.path.isfile(os.path.join(self.folder_name, file_name)):
                 print(".CSV RF data file already exists")
             else:
                 scan_info_header = self.__yaml_header()
                 np.savetxt(os.path.join(self.folder_name, file_name),
-                           np.transpose(data[:, :, f]), delimiter=",", header=scan_info_header)
-                print(round((f + 1) / frame * 100, 0), '%')
+                           np.transpose(data[:, :, frame]), delimiter=",", header=scan_info_header)
+                print(round((frame + 1) / total_frames * 100, 0), '%')
 
     # Returns all data frames as .CSV. No need to specify number.
     def csv_all_frames(self):
@@ -103,7 +101,7 @@ class CData:
         imaging_depth = yaml_info["imaging depth"]
         focal_depth = yaml_info["focal depth"]
         tgc = yaml_info["tgc"]
-        full_header = ",imaging depth," + imaging_depth + "," + "focal_depth," + focal_depth + "," + "tgc,"
+        full_header = "," + "imaging depth" + "," + imaging_depth + "," + "focal_depth," + focal_depth + "," + "tgc,"
 
         # the TGC values are stored as keys. This reads those keys. I don't think they map to any useful information
         for depth in tgc:
@@ -138,7 +136,7 @@ class CData:
         file_name = "D{} F{}".format(yaml_info["imaging depth"], yaml_info["focal depth"])
         return file_name, attenuation
 
-    def cal_files(self):
+    def cal_phantom_files(self):
         self.cal_raw()
         self.cal_tgc()
         self.cal_yaml()
@@ -148,19 +146,17 @@ class CData:
     # Search must be a list even if it is size one
     def __cal_copy(self, search):
         filename, attenuation = self.__cal_details()
-        cal_path = os.path.join(self.folder_path, "Ultrasound Calibration Files")
+        cal_path = os.path.join(self.folder_path, "Ultrasound Calibration Phantom")
         filename_path = os.path.join(cal_path, filename)
         attenuation_path = os.path.join(filename_path, attenuation)
-        if not os.path.exists(cal_path):
-            os.mkdir(cal_path)
-        if not os.path.exists(filename_path):
-            os.mkdir(filename_path)
-        if not os.path.exists(attenuation_path):
-            os.mkdir(attenuation_path)
+        self.create_folder(cal_path)
+        self.create_folder(filename_path)
+        self.create_folder(attenuation_path)
         for s in search:
             for item in ls_file(self.folder_name):
                 if s in item:
-                    shutil.copyfile(os.path.join(self.folder_name, item), os.path.join(attenuation_path, filename + " " + s))
+                    shutil.copyfile(os.path.join(self.folder_name, item),
+                                    os.path.join(attenuation_path, filename + " " + s))
 
     #  Copy yml files and renames them to match the calibration file with depth, focus, and attenuation values
     def cal_raw(self):
@@ -192,7 +188,12 @@ class CData:
     # values to the bottom of the CSV.
     def __cal_val_csv(self):
         csv_title = "Ultrasound Depth and Focus"
-        file_name = os.path.join(self.folder_path, csv_title + ".csv")
+        cal_folder = os.path.join(self.folder_path, "Ultrasound Calibration Data")
+        # if not os.path.exists(cal_folder):
+        #     os.mkdir(cal_folder)
+        self.create_folder(cal_folder)
+        file_name = os.path.join(cal_folder, csv_title + ".csv")
+        # file_name = os.path.join(self.folder_path, "Ultrasound Calibration Data", csv_title + ".csv")
         self.__add_cal_line(file_name)
 
     # Adds a new line to a CSV file. If this is the first line added to the CSV, it creates headers.
@@ -214,30 +215,43 @@ class CData:
             csv_out.close()
 
     # Searches the calibration library to check if the data has already been captured
-    def check_cal_files(self, cal_lib_path, delta=0.5):
+    def check_cal_lib(self, cal_lib_path, delta=0.5):
         depth = self.__remove_mm(self.__yaml_info()['imaging depth'])
         depth_lib = ls_dir(cal_lib_path)
-        closest_list = []
+        print(cal_lib_path)
+        closest_value = []
         max_diff = float("inf")
         for lib_search in depth_lib:
             lib_search = self.__remove_focus(lib_search)
             difference = abs(float(lib_search) - float(depth))
             if difference < delta and difference < max_diff:  # The header will read depth, but we only want the numbers
                 max_diff = difference
-                closest_list = difference, lib_search
-        if not closest_list:
+                closest_value = difference, lib_search
+        if not closest_value:  # If no calibration value within delta of the measured value, add it to not found list
             csv_title = "Ultrasound Depth and Focus Not Found"
-            file_name = os.path.join(self.folder_path, csv_title + ".csv")
+            cal_folder = os.path.join(self.folder_path, "Ultrasound Calibration Data")
+            file_name = os.path.join(cal_folder, csv_title + ".csv")
             self.__add_cal_line(file_name)
+        else:
+            self.copy_cal_files(closest_value[1], cal_lib_path)
+
+    def copy_cal_files(self, depth_val, cal_lib_path):
+        cal_folder = os.path.join(self.folder_path, "Ultrasound Calibration Data")
+        copy_location = os.path.join(self.folder_path, cal_folder)
+        # if not os.path.exists(cal_folder):
+        #     os.mkdir(cal_folder)
+        self.create_folder(cal_folder)
+        for folder in ls_dir(cal_lib_path):
+            depth_path = os.path.join(copy_location, self.__remove_file_type(self.filename))
+            if depth_val in folder and not os.path.exists(depth_path):
+                print("cal folder: " + folder)
+                print(depth_path)
+                shutil.copytree(os.path.join(cal_lib_path, folder), depth_path)
 
     # Removes an affix of length "suffix_len" from the end of a filename. EG __remove_affix("text.csv", 4) -> "text"
     @staticmethod
     def __remove_file_type(file_name):
-        return file_name.split('.')[0:-1]
-
-    # Removes .CSV from the end of a filename.
-    def __remove_csv(self, file_name):
-        return self.__remove_file_type(file_name)
+        return file_name.split('.')[0:-1][0]
 
     # Removes " mm" (including the space) from the end of a file name. EG "55.55 mm" -> "55.55"
     @staticmethod
@@ -252,9 +266,15 @@ class CData:
     # Deletes the old CSV files that that show which calibration data is there and is still missing
     @staticmethod
     def csv_cleanup(scan_folder_path):
-        found_cal_files = os.path.join(scan_folder_path, "Ultrasound Depth and Focus.csv")
-        missing_cal_files = os.path.join(scan_folder_path, "Ultrasound Depth and Focus Not Found.csv")
+        cal_folder = "Ultrasound Calibration Data"
+        found_cal_files = os.path.join(scan_folder_path, cal_folder, "Ultrasound Depth and Focus.csv")
+        missing_cal_files = os.path.join(scan_folder_path, cal_folder, "Ultrasound Depth and Focus Not Found.csv")
         if os.path.isfile(found_cal_files):
             os.remove(found_cal_files)
         if os.path.isfile(missing_cal_files):
             os.remove(missing_cal_files)
+
+    @staticmethod
+    def create_folder(folder_path):
+        if not os.path.exists(folder_path):
+            os.mkdir(folder_path)
