@@ -21,7 +21,7 @@ class CData:
         self.folder_name = os.path.join(self.folder_path, *filename.split('.')[0:-1])
         self.project_site, self.maternal_id, self.gestational_age, self.image_num = \
             stim_info["project_site"], stim_info["maternal_id"], stim_info["gestational_age"], stim_info["image_num"]
-        self.fetal_num = "{0}B{1}".format(stim_info["maternal_id"], stim_info["fetal_num"])
+        self.fetal_num = stim_info["fetal_num"]
         self.stim_filename = "_".join([self.project_site, self.maternal_id, self.fetal_num, self.gestational_age,
                                        self.__remove_file_type(self.filename), self.image_num])
         self.folder_name = os.path.join(self.folder_path, self.stim_filename)
@@ -48,10 +48,12 @@ class CData:
 
     # Displays several b-mode images from the data frame. step is the number of frames that
     # are skipped between each displayed image. There can be a lot so don't set this too low
-    def plot_rf(self, start=0, stop=float('inf'), step=1):
+    def plot_rf(self, start=1000, stop=float('inf'), step=1000):
         hdr = self.hdr
         data = self.data
         stop = min(hdr['frames'], stop)
+        if start > self.num_frames - 1:
+            start = self.num_frames - 1
 
         # convert to B-mode
         bdata = np.zeros((hdr['lines'], hdr['samples'], hdr['frames']), dtype='float')
@@ -63,10 +65,10 @@ class CData:
             plt.figure(figsize=(10, 5))
             plt.subplot(1, 2, 1)
             plt.imshow(np.transpose(data[:, :, frame]), cmap=plt.cm.gray, aspect='auto', vmin=-1000, vmax=1000)
-            plt.title('RF frame ' + str(frame))
+            plt.title('RF frame ' + str(frame + 1))
             plt.subplot(1, 2, 2)
             plt.imshow(np.transpose(bdata[:, :, frame]), cmap=plt.cm.gray, aspect='auto', vmin=15, vmax=70)
-            plt.title('sample B frame ' + str(frame))
+            plt.title(self.__remove_file_type(self.filename) + ' frame ' + str(frame + 1))
             plt.show()
 
     # Generates a .CSV file from the b-mode data frames downloaded from the Clarius probe
@@ -121,9 +123,8 @@ class CData:
         return yaml_info
 
     # Generates a name for the calibration file by looking for 0_54 or 1_30 in the file name. These values come
-    # from the two different regions of the attenuation phantom.
+    # from the two different regions of the attenuation phantom. Units: dB/cm/MHz
     def __cal_details(self):
-        # name = self.__remove_file_type(self.filename)
         name = self.stim_filename
         yaml_info = self.__yaml_info()
         attenuation = '0_00'
@@ -189,11 +190,8 @@ class CData:
     def __cal_val_csv(self):
         csv_title = "Ultrasound Depth and Focus"
         cal_folder = os.path.join(self.folder_path, "Ultrasound Calibration Data")
-        # if not os.path.exists(cal_folder):
-        #     os.mkdir(cal_folder)
         self.create_folder(cal_folder)
         file_name = os.path.join(cal_folder, csv_title + ".csv")
-        # file_name = os.path.join(self.folder_path, "Ultrasound Calibration Data", csv_title + ".csv")
         self.__add_cal_line(file_name)
 
     # Adds a new line to a CSV file. If this is the first line added to the CSV, it creates headers.
@@ -238,8 +236,6 @@ class CData:
     def copy_cal_files(self, depth_val, cal_lib_path):
         cal_folder = os.path.join(self.folder_path, "Ultrasound Calibration Data")
         copy_location = os.path.join(self.folder_path, cal_folder)
-        # if not os.path.exists(cal_folder):
-        #     os.mkdir(cal_folder)
         self.create_folder(cal_folder)
         for folder in ls_dir(cal_lib_path):
             depth_path = os.path.join(copy_location, self.__remove_file_type(self.filename))
@@ -269,12 +265,19 @@ class CData:
         cal_folder = "Ultrasound Calibration Data"
         found_cal_files = os.path.join(scan_folder_path, cal_folder, "Ultrasound Depth and Focus.csv")
         missing_cal_files = os.path.join(scan_folder_path, cal_folder, "Ultrasound Depth and Focus Not Found.csv")
-        if os.path.isfile(found_cal_files):
-            os.remove(found_cal_files)
-        if os.path.isfile(missing_cal_files):
-            os.remove(missing_cal_files)
+        # if os.path.isfile(found_cal_files):
+            # os.remove(found_cal_files)
+        CData.remove_folder(found_cal_files)
+        # if os.path.isfile(missing_cal_files):
+        #     os.remove(missing_cal_files)
+        CData.remove_folder(missing_cal_files)
 
     @staticmethod
     def create_folder(folder_path):
         if not os.path.exists(folder_path):
             os.mkdir(folder_path)
+
+    @staticmethod
+    def remove_folder(folder_path):
+        if os.path.isfile(folder_path):
+            os.remove(folder_path)

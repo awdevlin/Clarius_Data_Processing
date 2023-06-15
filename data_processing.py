@@ -1,4 +1,4 @@
-from hzhu_clarius import *
+from clarius import *
 from input_stim_info import *
 
 
@@ -6,6 +6,8 @@ def tar_processing():
     # Data collected using Clarius Cast API
 
     stim_info = participant_Data().stim_info
+
+    stim_info["sample_plot"] = 0
 
     # Path to the file unzip_data.exe (if relative path doesn't work, use absolute)
     # lzop_path = r"..\Clarius-raw-data"
@@ -24,6 +26,8 @@ def tar_processing():
             # cdata.cal_phantom_files()
             # cdata.plot_rf(0, 30, 5)
             # cdata.bmode_csv_out(1)
+            if stim_info["sample_plot"]:
+                cdata.plot_rf()
             if stim_info["cal_lib_search"]:
                 cdata.check_cal_lib(cal_lib_path)
 
@@ -32,5 +36,3 @@ def tar_processing():
 
 
 tar_processing()
-
-# participant_Data()
