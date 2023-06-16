@@ -265,11 +265,7 @@ class CData:
         cal_folder = "Ultrasound Calibration Data"
         found_cal_files = os.path.join(scan_folder_path, cal_folder, "Ultrasound Depth and Focus.csv")
         missing_cal_files = os.path.join(scan_folder_path, cal_folder, "Ultrasound Depth and Focus Not Found.csv")
-        # if os.path.isfile(found_cal_files):
-            # os.remove(found_cal_files)
         CData.remove_folder(found_cal_files)
-        # if os.path.isfile(missing_cal_files):
-        #     os.remove(missing_cal_files)
         CData.remove_folder(missing_cal_files)
 
     @staticmethod
