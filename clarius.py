@@ -21,9 +21,9 @@ class CData:
         self.folder_name = os.path.join(self.folder_path, *filename.split('.')[0:-1])
         self.project_site, self.maternal_id, self.gestational_age, self.image_num = \
             stim_info["project_site"], stim_info["maternal_id"], stim_info["gestational_age"], stim_info["image_num"]
-        self.fetal_num = stim_info["fetal_num"]
+        self.fetal_num, self.raw_or_rend = stim_info["fetal_num"], stim_info["raw_or_rend"]
         self.stim_filename = "_".join([self.project_site, self.maternal_id, self.fetal_num, self.gestational_age,
-                                       self.__remove_file_type(self.filename), self.image_num])
+                                       self.__remove_file_type(self.filename), self.image_num, self.raw_or_rend])
         self.folder_name = os.path.join(self.folder_path, self.stim_filename)
         shutil.unpack_archive(os.path.join(self.folder_path, filename), self.folder_name)
         self.files = ls_file(self.folder_name)
@@ -45,6 +45,7 @@ class CData:
         for item in self.files:
             if 'rf.raw' in item:
                 return rd.read_rf(os.path.join(self.folder_name, item))
+        return None
 
     # Displays several b-mode images from the data frame. step is the number of frames that
     # are skipped between each displayed image. There can be a lot so don't set this too low
@@ -138,9 +139,9 @@ class CData:
         return file_name, attenuation
 
     def cal_phantom_files(self):
-        self.cal_raw()
-        self.cal_tgc()
-        self.cal_yaml()
+        self.__cal_raw()
+        self.__cal_tgc()
+        self.__cal_yaml()
 
     # searches for the strings found in the list called search. If a files contains one of these strings,
     # it is copied and labeled with the calibration information
@@ -160,15 +161,15 @@ class CData:
                                     os.path.join(attenuation_path, filename + " " + s))
 
     #  Copy yml files and renames them to match the calibration file with depth, focus, and attenuation values
-    def cal_raw(self):
+    def __cal_raw(self):
         self.__cal_copy(["rf.raw", "env.raw"])
 
     # Copy yml files and renames them to match the calibration file with depth, focus, and attenuation values
-    def cal_yaml(self):
+    def __cal_yaml(self):
         self.__cal_copy(["rf.yml", "env.yml"])
 
     # Copy tgc files and renames them to match the calibration file with depth, focus, and attenuation values
-    def cal_tgc(self):
+    def __cal_tgc(self):
         self.__cal_copy(["env.tgc"])
 
     # Creates a .CSV file for calibration purposes. Generates the filename based on the depth, focus, and
@@ -216,12 +217,14 @@ class CData:
     def check_cal_lib(self, cal_lib_path, delta=0.5):
         depth = self.__remove_mm(self.__yaml_info()['imaging depth'])
         depth_lib = ls_dir(cal_lib_path)
-        print(cal_lib_path)
         closest_value = []
         max_diff = float("inf")
         for lib_search in depth_lib:
             lib_search = self.__remove_focus(lib_search)
-            difference = abs(float(lib_search) - float(depth))
+            try:
+                difference = abs(float(lib_search) - float(depth))
+            except ValueError:
+                continue
             if difference < delta and difference < max_diff:  # The header will read depth, but we only want the numbers
                 max_diff = difference
                 closest_value = difference, lib_search
@@ -231,23 +234,22 @@ class CData:
             file_name = os.path.join(cal_folder, csv_title + ".csv")
             self.__add_cal_line(file_name)
         else:
-            self.copy_cal_files(closest_value[1], cal_lib_path)
+            self.__copy_cal_files(closest_value[1], cal_lib_path)
 
-    def copy_cal_files(self, depth_val, cal_lib_path):
+    def __copy_cal_files(self, depth_val, cal_lib_path):
         cal_folder = os.path.join(self.folder_path, "Ultrasound Calibration Data")
         copy_location = os.path.join(self.folder_path, cal_folder)
         self.create_folder(cal_folder)
         for folder in ls_dir(cal_lib_path):
             depth_path = os.path.join(copy_location, self.__remove_file_type(self.filename))
             if depth_val in folder and not os.path.exists(depth_path):
-                print("cal folder: " + folder)
-                print(depth_path)
                 shutil.copytree(os.path.join(cal_lib_path, folder), depth_path)
 
     # Removes an affix of length "suffix_len" from the end of a filename. EG __remove_affix("text.csv", 4) -> "text"
+    # Also remove any whitespace at the start and end of the file name to prevent issues with folder naming
     @staticmethod
     def __remove_file_type(file_name):
-        return file_name.split('.')[0:-1][0]
+        return file_name.split('.')[0:-1][0].strip()
 
     # Removes " mm" (including the space) from the end of a file name. EG "55.55 mm" -> "55.55"
     @staticmethod
