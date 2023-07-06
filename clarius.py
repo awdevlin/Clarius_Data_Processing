@@ -21,12 +21,15 @@ class CData:
         self.folder_name = os.path.join(self.folder_path, *filename.split('.')[0:-1])
         self.project_site, self.maternal_id, self.gestational_age, self.image_num = \
             stim_info["project_site"], stim_info["maternal_id"], stim_info["gestational_age"], stim_info["image_num"]
-        self.fetal_num, self.raw_or_rend = stim_info["fetal_num"], stim_info["raw_or_rend"]
+        self.fetal_num = stim_info["fetal_num"]
+        # self.raw_or_rend = stim_info["raw_or_rend"]
         self.stim_filename = "_".join([self.project_site, self.maternal_id, self.fetal_num, self.gestational_age,
-                                       self.__remove_file_type(self.filename), self.image_num, self.raw_or_rend])
+                                       self.__remove_file_type(self.filename), self.image_num])  # , self.raw_or_rend])
         self.folder_name = os.path.join(self.folder_path, self.stim_filename)
         shutil.unpack_archive(os.path.join(self.folder_path, filename), self.folder_name)
         self.files = ls_file(self.folder_name)
+        self.cal_folder_name = "Ultrasound Calibration Data"
+        self.cal_csv_name = "Ultrasound Depth and Focus"
         for item in self.files:
             if '.raw.lzo' in item:
                 run(
@@ -65,10 +68,10 @@ class CData:
         for frame in range(start, stop, step):
             plt.figure(figsize=(10, 5))
             plt.subplot(1, 2, 1)
-            plt.imshow(np.transpose(data[:, :, frame]), cmap=plt.cm.gray, aspect='auto', vmin=-1000, vmax=1000)
+            plt.imshow(np.transpose(data[:, :, frame]), cmap='gray', aspect='auto', vmin=-1000, vmax=1000)
             plt.title('RF frame ' + str(frame + 1))
             plt.subplot(1, 2, 2)
-            plt.imshow(np.transpose(bdata[:, :, frame]), cmap=plt.cm.gray, aspect='auto', vmin=15, vmax=70)
+            plt.imshow(np.transpose(bdata[:, :, frame]), cmap='gray', aspect='auto', vmin=15, vmax=70)
             plt.title(self.__remove_file_type(self.filename) + ' frame ' + str(frame + 1))
             plt.show()
 
@@ -189,10 +192,9 @@ class CData:
     # Creates a CSV file with the depth and focus of the scan. If multiple scans are processed, it appends these
     # values to the bottom of the CSV.
     def __cal_val_csv(self):
-        csv_title = "Ultrasound Depth and Focus"
-        cal_folder = os.path.join(self.folder_path, "Ultrasound Calibration Data")
+        cal_folder = os.path.join(self.folder_path, self.cal_folder_name)
         self.create_folder(cal_folder)
-        file_name = os.path.join(cal_folder, csv_title + ".csv")
+        file_name = os.path.join(cal_folder, self.cal_csv_name + ".csv")
         self.__add_cal_line(file_name)
 
     # Adds a new line to a CSV file. If this is the first line added to the CSV, it creates headers.
@@ -229,21 +231,29 @@ class CData:
                 max_diff = difference
                 closest_value = difference, lib_search
         if not closest_value:  # If no calibration value within delta of the measured value, add it to not found list
-            csv_title = "Ultrasound Depth and Focus Not Found"
-            cal_folder = os.path.join(self.folder_path, "Ultrasound Calibration Data")
+            csv_title = self.cal_csv_name + " Not Found"
+            cal_folder = os.path.join(self.folder_path, self.cal_folder_name)
             file_name = os.path.join(cal_folder, csv_title + ".csv")
             self.__add_cal_line(file_name)
         else:
             self.__copy_cal_files(closest_value[1], cal_lib_path)
 
     def __copy_cal_files(self, depth_val, cal_lib_path):
-        cal_folder = os.path.join(self.folder_path, "Ultrasound Calibration Data")
+        cal_folder = os.path.join(self.folder_path, self.cal_folder_name)
         copy_location = os.path.join(self.folder_path, cal_folder)
         self.create_folder(cal_folder)
         for folder in ls_dir(cal_lib_path):
             depth_path = os.path.join(copy_location, self.__remove_file_type(self.filename))
             if depth_val in folder and not os.path.exists(depth_path):
                 shutil.copytree(os.path.join(cal_lib_path, folder), depth_path)
+
+    # Deletes the old CSV files that that show which calibration data is there and is still missing
+    def csv_cleanup(self, scan_folder_path):
+        cal_folder = self.cal_folder_name
+        found_cal_files = os.path.join(scan_folder_path, cal_folder, self.cal_csv_name + ".csv")
+        missing_cal_files = os.path.join(scan_folder_path, cal_folder, self.cal_csv_name + " Not Found.csv")
+        CData.remove_folder(found_cal_files)
+        CData.remove_folder(missing_cal_files)
 
     # Removes an affix of length "suffix_len" from the end of a filename. EG __remove_affix("text.csv", 4) -> "text"
     # Also remove any whitespace at the start and end of the file name to prevent issues with folder naming
@@ -260,15 +270,6 @@ class CData:
     @staticmethod
     def __remove_focus(depth_and_focus):
         return depth_and_focus[1:depth_and_focus.find(' mm')]
-
-    # Deletes the old CSV files that that show which calibration data is there and is still missing
-    @staticmethod
-    def csv_cleanup(scan_folder_path):
-        cal_folder = "Ultrasound Calibration Data"
-        found_cal_files = os.path.join(scan_folder_path, cal_folder, "Ultrasound Depth and Focus.csv")
-        missing_cal_files = os.path.join(scan_folder_path, cal_folder, "Ultrasound Depth and Focus Not Found.csv")
-        CData.remove_folder(found_cal_files)
-        CData.remove_folder(missing_cal_files)
 
     @staticmethod
     def create_folder(folder_path):

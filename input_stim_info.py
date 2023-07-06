@@ -1,5 +1,6 @@
 import os
 import tkinter as tk
+from tkinter import messagebox
 from tkinter import filedialog
 
 
@@ -96,12 +97,26 @@ class participant_Data:
         self.stim_info["b-mode_plot"] = self.bmode_cb.get_cb()
         self.stim_info["collecting_cal_data"] = self.collecting_cal_data.get_cb()
         self.stim_info["raw_or_rend"] = "raw"  # Clarius only stores raw images for now, this may change later
-        self.window.destroy()
+
+        # close the tkinter window if participant information was entered completely. Else send warning message
+        if self.__check_stim_info():
+            self.window.destroy()
+        else:
+            messagebox.showwarning(title='Data Entry Warning', message='All Information Fields Must Be Filled')
 
     def __get_cal_path(self):
         if self.calibration_cb.get_cb():
             return self.cal_lib_browse.get_entry()
         return ''
+
+    # Check if any values are left blank in the GUI when recording participant data
+    def __check_stim_info(self):
+        for field in self.stim_info:
+            # Catches a blank entry in stim_info. If that entry is the calibration library path and the user is not
+            # looking for calibration data, that is allowed to be blank
+            if self.stim_info[field] == '' and not (field == "cal_lib_path" and not self.calibration_cb.get_cb()):
+                return False
+        return True
 
 
 # This class uses Tkinter to create a GUI elements that share information. For example, you can create a
