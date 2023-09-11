@@ -88,13 +88,13 @@ class CData:
             total_frames = self.num_frames
         for frame in range(total_frames):
             file_name = name + " frame {}.csv".format(start_frame + frame)
-            if os.path.isfile(os.path.join(self.folder_name, file_name)):
-                print(".CSV RF data file already exists")
-            else:
-                scan_info_header = self.__yaml_header()
-                np.savetxt(os.path.join(self.folder_name, file_name),
-                           np.transpose(data[:, :, frame]), delimiter=",", header=scan_info_header)
-                print(round((frame + 1) / total_frames * 100, 0), '%')
+            self.__save_csv(file_name, data, frame)
+            # if os.folder_path.isfile(os.folder_path.join(self.folder_name, file_name)):
+            #     print(".CSV RF data file already exists")
+            # else:
+            #     scan_info_header = self.__yaml_header()
+            #     np.savetxt(os.folder_path.join(self.folder_name, file_name),
+            #                np.transpose(data[:, :, frame]), delimiter=",", header=scan_info_header)
 
     # Returns all data frames as .CSV. No need to specify number.
     def csv_all_frames(self):
@@ -107,7 +107,7 @@ class CData:
         imaging_depth = yaml_info["imaging depth"]
         focal_depth = yaml_info["focal depth"]
         tgc = yaml_info["tgc"]
-        full_header = "," + "imaging depth" + "," + imaging_depth + "," + "focal_depth," + focal_depth + "," + "tgc,"
+        full_header = ",".join(["", "imaging depth", imaging_depth, "focal_depth", focal_depth, "tgc", ""])
 
         # the TGC values are stored as keys. This reads those keys. I don't think they map to any useful information
         for depth in tgc:
@@ -181,13 +181,14 @@ class CData:
     def cal_csv(self):
         data = self.data
         start_frame = self.num_frames
-        scan_info_header = self.__yaml_header()
         filename = self.__cal_details()[0] + ".csv"
-        if os.path.isfile(os.path.join(self.folder_name, filename)):
-            print(".CSV RF data file already exists")
-        else:
-            np.savetxt(os.path.join(self.folder_name, filename),
-                       np.transpose(data[:, :, start_frame - 1]), delimiter=",", header=scan_info_header)
+        self.__save_csv(filename, data, start_frame)
+        # if os.folder_path.isfile(os.folder_path.join(self.folder_name, filename)):
+        #     print(".CSV RF data file already exists")
+        # else:
+        #     scan_info_header = self.__yaml_header()
+        #     np.savetxt(os.folder_path.join(self.folder_name, filename),
+        #                np.transpose(data[:, :, start_frame - 1]), delimiter=",", header=scan_info_header)
 
     # Creates a CSV file with the depth and focus of the scan. If multiple scans are processed, it appends these
     # values to the bottom of the CSV.
@@ -207,7 +208,8 @@ class CData:
         csv_cal_vals = [self.__remove_file_type(self.filename), self.__remove_mm(depth), self.__remove_mm(focus)]
         self.new_csv_line(file_name, csv_cal_vals)
 
-    # Adds a new row to the end of a CSV file. Appends by default. Mode can be changed for write, create, etc
+    # Adds a new row to the end of a CSV file. Appends by default. Mode can be changed for write, create, etc.
+    # line_vals should be passed to this function as a list of values. A string will be split into characters
     @staticmethod
     def new_csv_line(file_name, line_vals, mode='a'):
         with open(file_name, mode, newline='') as csv_out:  # newline = '' is needed or you get spaces between lines
@@ -225,9 +227,10 @@ class CData:
             lib_search = self.__remove_focus(lib_search)
             try:
                 difference = abs(float(lib_search) - float(depth))
+            # Some values will not be numbers (e.g. column titles), calculating this difference will cause a ValueError
             except ValueError:
-                continue
-            if difference < delta and difference < max_diff:  # The header will read depth, but we only want the numbers
+                continue  # Skips this loop because a non-number, such as a title, is being compared
+            if difference < delta and difference < max_diff:
                 max_diff = difference
                 closest_value = difference, lib_search
         if not closest_value:  # If no calibration value within delta of the measured value, add it to not found list
@@ -238,6 +241,7 @@ class CData:
         else:
             self.__copy_cal_files(closest_value[1], cal_lib_path)
 
+    # Copies calibration files . Ensures the proper organization of folders. Avoids copying duplicates.
     def __copy_cal_files(self, depth_val, cal_lib_path):
         cal_folder = os.path.join(self.folder_path, self.cal_folder_name)
         copy_location = os.path.join(self.folder_path, cal_folder)
@@ -252,8 +256,12 @@ class CData:
         cal_folder = self.cal_folder_name
         found_cal_files = os.path.join(scan_folder_path, cal_folder, self.cal_csv_name + ".csv")
         missing_cal_files = os.path.join(scan_folder_path, cal_folder, self.cal_csv_name + " Not Found.csv")
-        CData.remove_folder(found_cal_files)
-        CData.remove_folder(missing_cal_files)
+        CData.remove_file(found_cal_files)
+        CData.remove_file(missing_cal_files)
+
+        # csv_cleanup deletes the calibration csv after the first entry is added. Calling __cal_val_csv after
+        # deleting the calibration csv will ensure the first enrty is not skipped when processing multiple scans at once
+        self.__cal_val_csv()  # This line is spagetti
 
     # Removes an affix of length "suffix_len" from the end of a filename. EG __remove_affix("text.csv", 4) -> "text"
     # Also remove any whitespace at the start and end of the file name to prevent issues with folder naming
@@ -266,17 +274,32 @@ class CData:
     def __remove_mm(measurement):
         return measurement[0:-3]
 
-    # Given the format for Depth and Focus, D94.50 mm F47.23 mm. Prints only the first number. EG returns 94.50
+    # Given the format for Depth and Focus, D94.50 mm F47.23 mm, this prints only the Depth. EG returns 94.50
     @staticmethod
     def __remove_focus(depth_and_focus):
-        return depth_and_focus[1:depth_and_focus.find(' mm')]
+        return depth_and_focus[1:depth_and_focus.find('mm')].strip()
 
+    # Creates a new directory only if it didn't exist before. Prevents duplicates and errors.
     @staticmethod
     def create_folder(folder_path):
         if not os.path.exists(folder_path):
             os.mkdir(folder_path)
 
+    # Removes a file if it exists. Prevents errors if files do not exist in the first place.
     @staticmethod
-    def remove_folder(folder_path):
-        if os.path.isfile(folder_path):
-            os.remove(folder_path)
+    def remove_file(file_path):
+        if os.path.isfile(file_path):
+            os.remove(file_path)
+
+    # This function doesn't work very well. It is not recommended.
+    # Saves the data for the given frame into a csv file. This stores a B-Mode image that is distored.
+    def __save_csv(self, file_name, data, frame):
+        if os.path.isfile(os.path.join(self.folder_name, file_name)):
+            print(".CSV RF data file already exists")
+        else:
+            scan_info_header = self.__yaml_header()
+            np.savetxt(os.path.join(self.folder_name, file_name),
+                       np.transpose(data[:, :, frame]), delimiter=",", header=scan_info_header)
+
+    def transmit_freq(self):
+        return self.__yaml_info()["transmit frequency"]

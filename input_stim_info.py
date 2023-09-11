@@ -2,6 +2,8 @@ import os
 import tkinter as tk
 from tkinter import messagebox
 from tkinter import filedialog
+# from data_processing import tar_processing
+from clarius import *
 
 
 # Class to create a GUI used to input patient data
@@ -64,6 +66,8 @@ class participant_Data:
 
         self.record_button = InfoFields(self.window, self.cal_lib_browse.next_row())
         self.record_button.create_button("Process Participant Data", self.__read_data)
+        self.record_button.row -= 1
+        self.record_button.create_label("", 2)
 
     # Allows for browsing folders. This can make it much easier to find the folder of interest
     @staticmethod
@@ -100,7 +104,9 @@ class participant_Data:
 
         # close the tkinter window if participant information was entered completely. Else send warning message
         if self.__check_stim_info():
-            self.window.destroy()
+            self.update_progress('Running')
+            tar_processing(self.stim_info)
+            self.update_progress('Done!')
         else:
             messagebox.showwarning(title='Data Entry Warning', message='All Information Fields Must Be Filled')
 
@@ -112,11 +118,15 @@ class participant_Data:
     # Check if any values are left blank in the GUI when recording participant data
     def __check_stim_info(self):
         for field in self.stim_info:
-            # Catches a blank entry in stim_info. If that entry is the calibration library path and the user is not
-            # looking for calibration data, that is allowed to be blank
+            # Catches a blank entry in stim_info. If that entry is the calibration library folder_path and the user
+            # is not looking for calibration data, that is allowed to be blank
             if self.stim_info[field] == '' and not (field == "cal_lib_path" and not self.calibration_cb.get_cb()):
                 return False
         return True
+
+    def update_progress(self, text):
+        self.record_button.label.config(text=text)
+        self.record_button.label.update()
 
 
 # This class uses Tkinter to create a GUI elements that share information. For example, you can create a
@@ -192,3 +202,35 @@ class InfoFields:
             entry.insert(0, old_text)
             entry.config(fg="grey")
             entry.bind("<FocusIn>", lambda e: self.__delete_text(entry))
+
+
+def tar_processing(stim_info):
+    # Data collected using Clarius Cast API
+
+    # Path to the folder where data is stored
+    scan_folder_path = stim_info["scan_folder_path"]
+
+    scan_count = 0
+    for scan_title in ls_file(scan_folder_path):
+        if '.tar' in scan_title:
+            cdata = CData(scan_folder_path, scan_title, stim_info)
+            if scan_count == 0:  # Delete old files on the first loop. Need CData object to be created first
+                cdata.csv_cleanup(scan_folder_path)
+
+            # Determinte which functions are run based on which check boxes are selected
+            if stim_info["collecting_cal_data"]:
+                cdata.cal_phantom_files()
+            if stim_info["b-mode_plot"]:
+                cdata.plot_rf()
+            if stim_info["cal_lib_path"]:
+                cdata.check_cal_lib(stim_info["cal_lib_path"])
+
+            # print(scan_title + " " + cdata.transmit_freq())
+
+        # Print progress based on how many files are processed. Visual feedback for long scans.
+        print(round((scan_count + 1) / len(ls_file(scan_folder_path)) * 100, 0), '%')
+        # pData.update_progress(round((scan_count + 1) / len(ls_file(scan_folder_path)) * 100, 0), '%')
+        scan_count += 1
+
+
+participant_Data()

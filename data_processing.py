@@ -1,12 +1,10 @@
 from clarius import *
-from input_stim_info import *
+# from input_stim_info import *
 
 
 # Processes all .tar files in the folder located at scan_folder_path.
-def tar_processing():
+def tar_processing(stim_info):
     # Data collected using Clarius Cast API
-
-    stim_info = participant_Data().stim_info
 
     # Path to the folder where data is stored
     scan_folder_path = stim_info["scan_folder_path"]
@@ -15,8 +13,10 @@ def tar_processing():
     for scan_title in ls_file(scan_folder_path):
         if '.tar' in scan_title:
             cdata = CData(scan_folder_path, scan_title, stim_info)
-            if scan_count == 0:
+            if scan_count == 0:  # Delete old files on the first loop. Need CData object to be created first
                 cdata.csv_cleanup(scan_folder_path)
+
+            # Determinte which functions are run based on which check boxes are selected
             if stim_info["collecting_cal_data"]:
                 cdata.cal_phantom_files()
             if stim_info["b-mode_plot"]:
@@ -24,8 +24,8 @@ def tar_processing():
             if stim_info["cal_lib_path"]:
                 cdata.check_cal_lib(stim_info["cal_lib_path"])
 
-            print(round((scan_count + 1) / len(ls_file(scan_folder_path)) * 100, 0), '%')
+            # print(scan_title + " " + cdata.transmit_freq())
+
+        # Print progress based on how many files are processed. Visual feedback for long scans.
+        print(round((scan_count + 1) / len(ls_file(scan_folder_path)) * 100, 0), '%')
         scan_count += 1
-
-
-tar_processing()
