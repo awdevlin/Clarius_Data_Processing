@@ -8,19 +8,19 @@ random.seed(global_random_seed)
 
 
 def ls_file(path=os.getcwd()):
-    assert isinstance(path, str), 'path type error @hzhu_gen::ls_file(path)'
+    assert isinstance(path, str), 'path type error @hzhu_gen::ls_file(folder_path)'
     files = [f for f in os.listdir(path) if os.path.isfile(os.path.join(path, f))]
     return files
 
 
 def ls_dir(path=os.getcwd()):
-    assert isinstance(path, str), 'path type error @hzhu_gen::ls_dir(path)'
+    assert isinstance(path, str), 'path type error @hzhu_gen::ls_dir(folder_path)'
     files = [f for f in os.listdir(path) if os.path.isdir(os.path.join(path, f))]
     return files
 
 
 def ls_all(path=os.getcwd()):
-    assert isinstance(path, str), 'path type error @hzhu_gen::ls_all(path)'
+    assert isinstance(path, str), 'path type error @hzhu_gen::ls_all(folder_path)'
     return os.listdir(path)
 
 
@@ -143,7 +143,7 @@ class QuickHelper:
         return self.dir
 
     def __str__(self):
-        return '- QuickHelper:\n - ID = %s\n - path = %s\n - elapsed time = %f(sec)\n' % (
+        return '- QuickHelper:\n - ID = %s\n - folder_path = %s\n - elapsed time = %f(sec)\n' % (
         self.ID, self.dir, self.time_elapsed())
 
     def summary(self):

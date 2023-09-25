@@ -1,15 +1,18 @@
-import os
 import tkinter as tk
 from tkinter import messagebox
 from tkinter import filedialog
-# from data_processing import tar_processing
-from clarius import *
+import json
+import os
+import clarius as cl
+import threading
+from time import perf_counter
 
 
 # Class to create a GUI used to input patient data
 class participant_Data:
     def __init__(self):
         self.stim_info = {}
+        self.scan_json = "scan_info.json"
         self.__define_input_box()
         self.__create_fields()
         self.__grey_out(self.calibration_cb, self.cal_lib_browse)
@@ -23,10 +26,11 @@ class participant_Data:
 
     # Creates entry regions for each data point and their labels
     def __create_fields(self):
+        scan_folder = self.__read_folder_path("ParticipantFolder")
         self.scan_folder_path = InfoFields(self.window, 0)
         self.scan_folder_path.create_button('Browse to Participant Folder',
-                                            lambda: self.__browse_files(self.scan_folder_path))
-        self.scan_folder_path.create_entry(os.path.expanduser("~"))
+                                            lambda: self.__browse_files(self.scan_folder_path, scan_folder))
+        self.scan_folder_path.create_entry(scan_folder)
 
         self.site_num = InfoFields(self.window, self.scan_folder_path.next_row())
         self.site_num.create_label("Enter Site Number: ")
@@ -59,24 +63,53 @@ class participant_Data:
         self.bmode_cb = InfoFields(self.window, self.im_num.next_row())
         self.bmode_cb.create_check_box("B-Mode Sample", False, "", cb_col + 2)
 
+        calibration_folder = self.__read_folder_path("CalibrationFolder")
         self.cal_lib_browse = InfoFields(self.window, self.calibration_cb.next_row())
         self.cal_lib_browse.create_button("Browse for Calibration Library",
-                                          lambda: self.__browse_files(self.cal_lib_browse))
-        self.cal_lib_browse.create_entry(os.path.expanduser("~"))
+                                          lambda: self.__browse_files(self.cal_lib_browse, calibration_folder))
+        self.cal_lib_browse.create_entry(self.__read_folder_path("CalibrationFolder"))
 
         self.record_button = InfoFields(self.window, self.cal_lib_browse.next_row())
         self.record_button.create_button("Process Participant Data", self.__read_data)
-        self.record_button.row -= 1
+        self.record_button.row -= 1  # InfoFields increments rows after each new button. This keeps thing on one line.
         self.record_button.create_label("", 2)
 
     # Allows for browsing folders. This can make it much easier to find the folder of interest
-    @staticmethod
-    def __browse_files(info_fields):
-        desktop_path = os.path.expanduser("~")
+    def __browse_files(self, info_fields, default_folder):
         info_fields.entry.delete(0, "end")
-        info_fields.entry.insert(0, filedialog.askdirectory(initialdir=desktop_path))
+        info_fields.entry.insert(0, filedialog.askdirectory(initialdir=default_folder))
         info_fields.entry.config(fg="black")
         info_fields.entry.unbind("<FocusIn>")
+        self.__record_folder_paths()
+
+    # Creates and updates a json file to store the file locations used in the app
+    def __record_folder_paths(self):
+        folder_data = {}
+        participant_key = "ParticipantFolder"
+        try:
+            participant_folder = self.scan_folder_path.entry.get()
+        except AttributeError:  # AttributeError is throw when no json file exists because entry is not yet created
+            participant_folder = ''
+        folder_data[participant_key] = participant_folder
+
+        calibration_key = "CalibrationFolder"
+        try:
+            calibration_folder = self.cal_lib_browse.entry.get()
+        except AttributeError:  # AttributeError is throw when no json file exists because entry is not yet created
+            calibration_folder = ''
+        folder_data[calibration_key] = calibration_folder
+
+        folder_json = json.dumps(folder_data)
+
+        with open(self.scan_json, 'w') as json_file:
+            json_file.write(folder_json)
+
+    def __read_folder_path(self, key):
+        if not os.path.isfile(self.scan_json):
+            self.__record_folder_paths()
+        with open(self.scan_json, 'r') as f:
+            json_file = json.load(f)
+        return json_file[key]
 
     @staticmethod
     def __grey_out(check_button, target):
@@ -102,10 +135,11 @@ class participant_Data:
         self.stim_info["collecting_cal_data"] = self.collecting_cal_data.get_cb()
         self.stim_info["raw_or_rend"] = "raw"  # Clarius only stores raw images for now, this may change later
 
-        # close the tkinter window if participant information was entered completely. Else send warning message
         if self.__check_stim_info():
-            self.update_progress('Running')
-            tar_processing(self.stim_info)
+            print(f"\nProcessing {self.stim_info['maternal_id']}\n")
+            self.update_progress('Running...')
+            self.__record_folder_paths()
+            multi_processing(self.stim_info)
             self.update_progress('Done!')
         else:
             messagebox.showwarning(title='Data Entry Warning', message='All Information Fields Must Be Filled')
@@ -209,13 +243,16 @@ def tar_processing(stim_info):
 
     # Path to the folder where data is stored
     scan_folder_path = stim_info["scan_folder_path"]
+    cl.CData.csv_cleanup(scan_folder_path)
 
+    all_files = cl.ls_file(scan_folder_path)
+    file_list = [file for file in all_files if ".tar" in file]
     scan_count = 0
-    for scan_title in ls_file(scan_folder_path):
+    for scan_title in file_list:
         if '.tar' in scan_title:
-            cdata = CData(scan_folder_path, scan_title, stim_info)
-            if scan_count == 0:  # Delete old files on the first loop. Need CData object to be created first
-                cdata.csv_cleanup(scan_folder_path)
+            cdata = cl.CData(scan_folder_path, scan_title, stim_info)
+            # if scan_count == 0:  # Delete old files on the first loop. Need CData object to be created first
+            #     cdata.csv_cleanup(scan_folder_path)
 
             # Determinte which functions are run based on which check boxes are selected
             if stim_info["collecting_cal_data"]:
@@ -225,12 +262,57 @@ def tar_processing(stim_info):
             if stim_info["cal_lib_path"]:
                 cdata.check_cal_lib(stim_info["cal_lib_path"])
 
-            # print(scan_title + " " + cdata.transmit_freq())
-
         # Print progress based on how many files are processed. Visual feedback for long scans.
-        print(round((scan_count + 1) / len(ls_file(scan_folder_path)) * 100, 0), '%')
+        print(round((scan_count + 1) / len(cl.ls_file(scan_folder_path)) * 100, 0), '%')
         # pData.update_progress(round((scan_count + 1) / len(ls_file(scan_folder_path)) * 100, 0), '%')
         scan_count += 1
+
+
+# Uses multithreading to speed up the process. The program is bottlenecked by downlaods so running them at the same
+# time ensures something is always downloading
+def multi_tar(stim_info, file_list, cal_lock, tc):
+    scan_folder_path = stim_info["scan_folder_path"]
+    for scan_title in file_list:
+        if '.tar' in scan_title:
+            cdata = cl.CData(scan_folder_path, scan_title, stim_info, cal_lock)
+
+            # Determinte which functions are run based on which check boxes are selected
+            if stim_info["collecting_cal_data"]:
+                cdata.cal_phantom_files()
+            if stim_info["b-mode_plot"]:
+                cdata.plot_rf()
+            if stim_info["cal_lib_path"]:
+                cdata.check_cal_lib(stim_info["cal_lib_path"])
+    # print(f"Done thread {tc}")
+
+
+# Multithreaded data processing
+def multi_processing(stim_info):
+    t1 = perf_counter()
+
+    scan_folder_path = stim_info["scan_folder_path"]
+    cl.CData.csv_cleanup(scan_folder_path)  # Delete old csv files so new ones can be updated
+    all_files = cl.ls_file(scan_folder_path)
+    tar_files = [file for file in all_files if ".tar" in file]  # Remove files that are not .tar format
+    thread_count = len(tar_files)
+    if stim_info["b-mode_plot"] == 1 or stim_info["collecting_cal_data"]:
+        thread_count = 1  # Plots and calibration data are not threadsafe so a single thread is required
+
+    threads = []
+    split = len(tar_files) // thread_count  # Split often is 1 when threads == len(tar_files)
+    cal_lock = threading.Lock()
+    for tc in range(thread_count):
+        start = tc * split
+        # Defining end this way ensures the final threads do not go over range due to integer rounding
+        end = None if tc + 1 == thread_count else (tc + 1) * split
+        threads.append(threading.Thread(target=multi_tar, args=(stim_info, tar_files[start:end], cal_lock, tc)))
+        threads[-1].start()  # Starts the most recent thread that was just appended to the list
+
+    for th in threads:  # Joins the threads from the list
+        th.join()
+
+    durration = perf_counter() - t1
+    print(f"Done in {durration} seconds\n")
 
 
 participant_Data()

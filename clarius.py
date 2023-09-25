@@ -1,3 +1,5 @@
+from hzhu_gen import *
+
 import shutil
 from subprocess import run
 import numpy as np
@@ -7,14 +9,12 @@ import rdataread as rd
 import yaml
 import csv
 
-from hzhu_gen import *
-
 
 # Data type that processes the ultrasound scan information from a Clarius probe. This data will
 # be in .TAR format initially. It will be unpacked into .RAW, .YAML, and .TGC files automatically
 # when a new CData object is created.
 class CData:
-    def __init__(self, folder_path, filename, stim_info, lzop_path=os.getcwd()):
+    def __init__(self, folder_path, filename, stim_info, lock=None, lzop_path=os.getcwd()):
         self.folder_path = folder_path
         self.filename = filename
         self.lzop_path = lzop_path
@@ -22,7 +22,6 @@ class CData:
         self.project_site, self.maternal_id, self.gestational_age, self.image_num = \
             stim_info["project_site"], stim_info["maternal_id"], stim_info["gestational_age"], stim_info["image_num"]
         self.fetal_num = stim_info["fetal_num"]
-        # self.raw_or_rend = stim_info["raw_or_rend"]
         self.stim_filename = "_".join([self.project_site, self.maternal_id, self.fetal_num, self.gestational_age,
                                        self.__remove_file_type(self.filename), self.image_num])  # , self.raw_or_rend])
         self.folder_name = os.path.join(self.folder_path, self.stim_filename)
@@ -39,6 +38,7 @@ class CData:
         self.files = ls_file(self.folder_name)
         self.hdr, timestamps, self.data = self.get_rf()
         self.num_frames = self.hdr['frames']
+        self.cal_lock = lock
         self.__cal_val_csv()
         print('Loaded {d[2]} raw frames of size, {d[0]} x {d[1]} (lines x samples)'.format(d=self.data.shape))
 
@@ -89,12 +89,6 @@ class CData:
         for frame in range(total_frames):
             file_name = name + " frame {}.csv".format(start_frame + frame)
             self.__save_csv(file_name, data, frame)
-            # if os.folder_path.isfile(os.folder_path.join(self.folder_name, file_name)):
-            #     print(".CSV RF data file already exists")
-            # else:
-            #     scan_info_header = self.__yaml_header()
-            #     np.savetxt(os.folder_path.join(self.folder_name, file_name),
-            #                np.transpose(data[:, :, frame]), delimiter=",", header=scan_info_header)
 
     # Returns all data frames as .CSV. No need to specify number.
     def csv_all_frames(self):
@@ -183,12 +177,6 @@ class CData:
         start_frame = self.num_frames
         filename = self.__cal_details()[0] + ".csv"
         self.__save_csv(filename, data, start_frame)
-        # if os.folder_path.isfile(os.folder_path.join(self.folder_name, filename)):
-        #     print(".CSV RF data file already exists")
-        # else:
-        #     scan_info_header = self.__yaml_header()
-        #     np.savetxt(os.folder_path.join(self.folder_name, filename),
-        #                np.transpose(data[:, :, start_frame - 1]), delimiter=",", header=scan_info_header)
 
     # Creates a CSV file with the depth and focus of the scan. If multiple scans are processed, it appends these
     # values to the bottom of the CSV.
@@ -206,7 +194,9 @@ class CData:
         yaml_info = self.__yaml_info()
         depth, focus = yaml_info["imaging depth"], yaml_info["focal depth"]
         csv_cal_vals = [self.__remove_file_type(self.filename), self.__remove_mm(depth), self.__remove_mm(focus)]
-        self.new_csv_line(file_name, csv_cal_vals)
+
+        self.locker(self.cal_lock, lambda: self.new_csv_line(file_name, csv_cal_vals))
+        # self.new_csv_line(file_name, csv_cal_vals)
 
     # Adds a new row to the end of a CSV file. Appends by default. Mode can be changed for write, create, etc.
     # line_vals should be passed to this function as a list of values. A string will be split into characters
@@ -217,12 +207,25 @@ class CData:
             cal_writer.writerow(line_vals)
             csv_out.close()
 
+    # Checks a lock passed to the function; runs function if it is acquired successfully
+    @staticmethod
+    def locker(lock, locked_function):
+        acquired = False
+        while not acquired:
+            acquired = lock.acquire()  # lock.acquire automatically waits here until the lock is available
+            try:
+                if acquired:  # Because lock.acquire waits, the try and if aren't really needed, but it makes me happy
+                    locked_function()
+            finally:
+                if acquired:
+                    lock.release()
+
     # Searches the calibration library to check if the data has already been captured
     def check_cal_lib(self, cal_lib_path, delta=0.5):
         depth = self.__remove_mm(self.__yaml_info()['imaging depth'])
         depth_lib = ls_dir(cal_lib_path)
         closest_value = []
-        max_diff = float("inf")
+        min_diff = float("inf")
         for lib_search in depth_lib:
             lib_search = self.__remove_focus(lib_search)
             try:
@@ -230,10 +233,14 @@ class CData:
             # Some values will not be numbers (e.g. column titles), calculating this difference will cause a ValueError
             except ValueError:
                 continue  # Skips this loop because a non-number, such as a title, is being compared
-            if difference < delta and difference < max_diff:
-                max_diff = difference
+            if difference < delta and difference < min_diff:
+                if ((float(depth) < 100 and not float(lib_search) < 100) or
+                        (float(depth) >= 100 and not float(lib_search) >= 100)):
+                    continue  # Skips the rest of the loop if depth and lib_search are not on the same side of 100mm.
+                    # The transmit frequency changes from 4.0 to 2.5MHz when the depth raises past 100mm
+                min_diff = difference
                 closest_value = difference, lib_search
-        if not closest_value:  # If no calibration value within delta of the measured value, add it to not found list
+        if not closest_value:  # If no calibration value within delta of the measured value, add it to list of not found
             csv_title = self.cal_csv_name + " Not Found"
             cal_folder = os.path.join(self.folder_path, self.cal_folder_name)
             file_name = os.path.join(cal_folder, csv_title + ".csv")
@@ -251,17 +258,14 @@ class CData:
             if depth_val in folder and not os.path.exists(depth_path):
                 shutil.copytree(os.path.join(cal_lib_path, folder), depth_path)
 
-    # Deletes the old CSV files that that show which calibration data is there and is still missing
-    def csv_cleanup(self, scan_folder_path):
-        cal_folder = self.cal_folder_name
-        found_cal_files = os.path.join(scan_folder_path, cal_folder, self.cal_csv_name + ".csv")
-        missing_cal_files = os.path.join(scan_folder_path, cal_folder, self.cal_csv_name + " Not Found.csv")
+    @staticmethod
+    def csv_cleanup(scan_folder_path):
+        cal_csv_name = "Ultrasound Depth and Focus"
+        cal_folder = "Ultrasound Calibration Data"
+        found_cal_files = os.path.join(scan_folder_path, cal_folder, cal_csv_name + ".csv")
+        missing_cal_files = os.path.join(scan_folder_path, cal_folder, cal_csv_name + " Not Found.csv")
         CData.remove_file(found_cal_files)
         CData.remove_file(missing_cal_files)
-
-        # csv_cleanup deletes the calibration csv after the first entry is added. Calling __cal_val_csv after
-        # deleting the calibration csv will ensure the first enrty is not skipped when processing multiple scans at once
-        self.__cal_val_csv()  # This line is spagetti
 
     # Removes an affix of length "suffix_len" from the end of a filename. EG __remove_affix("text.csv", 4) -> "text"
     # Also remove any whitespace at the start and end of the file name to prevent issues with folder naming
