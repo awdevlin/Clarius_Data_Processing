@@ -18,7 +18,8 @@ class CData:
         self.folder_path = folder_path
         self.filename = filename
         self.lzop_path = lzop_path
-        self.folder_name = os.path.join(self.folder_path, *filename.split('.')[0:-1])
+        # self.folder_name = os.path.join(self.folder_path, *filename.split('.')[0:-1])
+        self.folder_name = os.path.join(self.folder_path, self.__remove_file_type(filename))
         self.project_site, self.maternal_id, self.gestational_age, self.image_num = \
             stim_info["project_site"], stim_info["maternal_id"], stim_info["gestational_age"], stim_info["image_num"]
         self.fetal_num = stim_info["fetal_num"]
@@ -227,19 +228,19 @@ class CData:
         closest_value = []
         min_diff = float("inf")
         for lib_search in depth_lib:
-            lib_search = self.__remove_focus(lib_search)
+            lib_search_depth = self.__remove_focus(lib_search)
             try:
-                difference = abs(float(lib_search) - float(depth))
+                difference = abs(float(lib_search_depth) - float(depth))
             # Some values will not be numbers (e.g. column titles), calculating this difference will cause a ValueError
             except ValueError:
                 continue  # Skips this loop because a non-number, such as a title, is being compared
-            if difference < delta and difference < min_diff:
-                if ((float(depth) < 100 and not float(lib_search) < 100) or
-                        (float(depth) >= 100 and not float(lib_search) >= 100)):
+            if difference <= delta and difference < min_diff:
+                if ((float(depth) < 100 and not float(lib_search_depth) < 100) or
+                        (float(depth) >= 100 and not float(lib_search_depth) >= 100)):
                     continue  # Skips the rest of the loop if depth and lib_search are not on the same side of 100mm.
                     # The transmit frequency changes from 4.0 to 2.5MHz when the depth raises past 100mm
                 min_diff = difference
-                closest_value = difference, lib_search
+                closest_value = difference, lib_search_depth
         if not closest_value:  # If no calibration value within delta of the measured value, add it to list of not found
             csv_title = self.cal_csv_name + " Not Found"
             cal_folder = os.path.join(self.folder_path, self.cal_folder_name)
@@ -271,7 +272,7 @@ class CData:
     # Also remove any whitespace at the start and end of the file name to prevent issues with folder naming
     @staticmethod
     def __remove_file_type(file_name):
-        return file_name.split('.')[0:-1][0].strip()
+        return '.'.join(file_name.split('.')[0:-1]).strip()
 
     # Removes " mm" (including the space) from the end of a file name. EG "55.55 mm" -> "55.55"
     @staticmethod

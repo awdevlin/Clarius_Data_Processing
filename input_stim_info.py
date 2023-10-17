@@ -270,7 +270,7 @@ def tar_processing(stim_info):
 
 # Uses multithreading to speed up the process. The program is bottlenecked by downlaods so running them at the same
 # time ensures something is always downloading
-def multi_tar(stim_info, file_list, cal_lock, tc):
+def multi_tar(stim_info, file_list, cal_lock):
     scan_folder_path = stim_info["scan_folder_path"]
     for scan_title in file_list:
         if '.tar' in scan_title:
@@ -305,7 +305,7 @@ def multi_processing(stim_info):
         start = tc * split
         # Defining end this way ensures the final threads do not go over range due to integer rounding
         end = None if tc + 1 == thread_count else (tc + 1) * split
-        threads.append(threading.Thread(target=multi_tar, args=(stim_info, tar_files[start:end], cal_lock, tc)))
+        threads.append(threading.Thread(target=multi_tar, args=(stim_info, tar_files[start:end], cal_lock)))
         threads[-1].start()  # Starts the most recent thread that was just appended to the list
 
     for th in threads:  # Joins the threads from the list
