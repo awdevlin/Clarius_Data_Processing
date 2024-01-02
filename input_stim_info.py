@@ -133,7 +133,7 @@ class participant_Data:
         self.stim_info["cal_lib_path"] = self.__get_cal_path()
         self.stim_info["b-mode_plot"] = self.bmode_cb.get_cb()
         self.stim_info["collecting_cal_data"] = self.collecting_cal_data.get_cb()
-        self.stim_info["raw_or_rend"] = "raw"  # Clarius only stores raw images for now, this may change later
+        # self.stim_info["raw_or_rend"] = "raw"  # Clarius only stores raw images for now, this may change later
 
         if self.__check_stim_info():
             print(f"\nProcessing {self.stim_info['maternal_id']}\n")
@@ -283,7 +283,6 @@ def multi_tar(stim_info, file_list, cal_lock):
                 cdata.plot_rf()
             if stim_info["cal_lib_path"]:
                 cdata.check_cal_lib(stim_info["cal_lib_path"])
-    # print(f"Done thread {tc}")
 
 
 # Multithreaded data processing

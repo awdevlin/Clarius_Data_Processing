@@ -49,6 +49,7 @@ class CData:
         for item in self.files:
             if 'rf.raw' in item:
                 return rd.read_rf(os.path.join(self.folder_name, item))
+        print('RF data missing')
         return None
 
     # Displays several b-mode images from the data frame. step is the number of frames that
@@ -111,26 +112,32 @@ class CData:
         return full_header
 
     # Returns the details of the probe and the scan by reading the .yml file downloaded from Clarius Cast
-    def __yaml_info(self):
-        folder_path = self.folder_name
+    def __yaml_info(self, folder_path=''):
+        if folder_path == '':
+            folder_path = self.folder_name
+            files = self.files
+        else:
+            files = ls_file(folder_path)
+
         rf_yml_file_name = ''
-        for item in self.files:
+        for item in files:
             if 'rf.yml' in item:
                 rf_yml_file_name = item.title()
         with open(os.path.join(folder_path, rf_yml_file_name)) as file:
             yaml_info = yaml.safe_load(file)
         return yaml_info
 
-    # Generates a name for the calibration file by looking for 0_54 or 1_30 in the file name. These values come
+        # Generates a name for the calibration file by looking for 0_54 or 1_30 in the file name. These values come
     # from the two different regions of the attenuation phantom. Units: dB/cm/MHz
     def __cal_details(self):
         name = self.stim_filename
         yaml_info = self.__yaml_info()
-        attenuation = '0_00'
-        if '0_54' in name:
-            attenuation = '0_54'
-        elif '1_30' in name:
-            attenuation = '1_30'
+        atn0, atn1, atn2 = '0_00', '0_54', '1_30'
+        attenuation = atn0
+        if atn1 in name:
+            attenuation = atn1
+        elif atn2 in name:
+            attenuation = atn2
         else:
             print("Incorrect Attenuation Values")
         file_name = "D{} F{}".format(yaml_info["imaging depth"], yaml_info["focal depth"])
@@ -233,14 +240,19 @@ class CData:
                 difference = abs(float(lib_search_depth) - float(depth))
             # Some values will not be numbers (e.g. column titles), calculating this difference will cause a ValueError
             except ValueError:
-                continue  # Skips this loop because a non-number, such as a title, is being compared
+                continue  # Skips this loop because a non-number (such as a title) is being compared
+            # Finds the closest calibration data that is within the threshold of less than delta (0.5 mm by default)
             if difference <= delta and difference < min_diff:
-                if ((float(depth) < 100 and not float(lib_search_depth) < 100) or
-                        (float(depth) >= 100 and not float(lib_search_depth) >= 100)):
-                    continue  # Skips the rest of the loop if depth and lib_search are not on the same side of 100mm.
-                    # The transmit frequency changes from 4.0 to 2.5MHz when the depth raises past 100mm
-                min_diff = difference
-                closest_value = difference, lib_search_depth
+                # Finds the frequency of the calibration data currently being seached to ensure it matches
+                # The transmit frequency changes from 4.0 HMz to 2.5 MHz when the depth raises past 100mm
+                calibration_folder = os.path.join(cal_lib_path, lib_search, "0_54")
+                calibration_freq = self.__yaml_info(calibration_folder)["transmit frequency"]
+                if self.transmit_freq() == calibration_freq:  # Only record depth if frequency is correct
+                    min_diff = difference
+                    closest_value = difference, lib_search_depth
+                else:
+                    print(f"{calibration_freq} != {self.transmit_freq()}")
+
         if not closest_value:  # If no calibration value within delta of the measured value, add it to list of not found
             csv_title = self.cal_csv_name + " Not Found"
             cal_folder = os.path.join(self.folder_path, self.cal_folder_name)
