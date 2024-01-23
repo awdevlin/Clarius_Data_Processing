@@ -42,7 +42,7 @@ class participant_Data:
 
         self.gest_age = InfoFields(self.window, self.mat_id.next_row())
         self.gest_age.create_label("Gestational Age: ")
-        self.gest_age.create_entry("WW.D")
+        self.gest_age.create_entry("WW.D or ExVivo")
 
         self.fet_num = InfoFields(self.window, self.gest_age.next_row())
         self.fet_num.create_label("Fetal Number: ")

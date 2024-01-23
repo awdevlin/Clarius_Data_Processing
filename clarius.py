@@ -199,12 +199,13 @@ class CData:
         if not os.path.exists(file_name):  # If this is the first line added, it also creates headers
             header_vals = ["Scan name", "Depth", "Focus"]
             self.new_csv_line(file_name, header_vals, 'w')
+            self.new_csv_line(file_name[:-4] + " Not Found.csv", header_vals, 'w')  # This folder might remain empty
         yaml_info = self.__yaml_info()
         depth, focus = yaml_info["imaging depth"], yaml_info["focal depth"]
         csv_cal_vals = [self.__remove_file_type(self.filename), self.__remove_mm(depth), self.__remove_mm(focus)]
 
-        self.locker(self.cal_lock, lambda: self.new_csv_line(file_name, csv_cal_vals))
-        # self.new_csv_line(file_name, csv_cal_vals)
+        # One thread runs this lineat a time. Prevents writing to a file that is open by another program.
+        self.locker(self.cal_lock, lambda: self.new_csv_line(file_name, csv_cal_vals))  # This runs self.new_csv_line
 
     # Adds a new row to the end of a CSV file. Appends by default. Mode can be changed for write, create, etc.
     # line_vals should be passed to this function as a list of values. A string will be split into characters
