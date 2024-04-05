@@ -13,27 +13,25 @@ import csv
 # Data type that processes the ultrasound scan information from a Clarius probe. This data will
 # be in .TAR format initially. It will be unpacked into .RAW, .YAML, and .TGC files automatically
 # when a new CData object is created.
+# noinspection PyTypeChecker
 class CData:
     def __init__(self, folder_path, filename, stim_info, lock=None, lzop_path=os.getcwd()):
         self.folder_path = folder_path
         self.filename = filename
         self.lzop_path = lzop_path
-        # self.folder_name = os.path.join(self.folder_path, *filename.split('.')[0:-1])
-        self.folder_name = os.path.join(self.folder_path, self.__remove_file_type(filename))
         self.project_site, self.maternal_id, self.gestational_age, self.image_num = \
             stim_info["project_site"], stim_info["maternal_id"], stim_info["gestational_age"], stim_info["image_num"]
         self.fetal_num = stim_info["fetal_num"]
         self.stim_filename = "_".join([self.project_site, self.maternal_id, self.fetal_num, self.gestational_age,
-                                       self.__remove_file_type(self.filename), self.image_num])  # , self.raw_or_rend])
+                                       self.__remove_file_type(self.filename), self.image_num])
         self.folder_name = os.path.join(self.folder_path, self.stim_filename)
-        shutil.unpack_archive(os.path.join(self.folder_path, filename), self.folder_name)
-        self.files = ls_file(self.folder_name)
+        shutil.unpack_archive(os.path.join(self.folder_path, filename), self.folder_name)  # unzips the .tar files
         self.cal_folder_name = "Ultrasound Calibration Data"
         self.cal_csv_name = "Ultrasound Depth and Focus"
+        self.files = ls_file(self.folder_name)
         for item in self.files:
             if '.raw.lzo' in item:
-                run(
-                    '\"%s\\unzip_data.exe\" -d \"%s\"' % (self.lzop_path, os.path.join(self.folder_name, item)),
+                run('\"%s\\unzip_data.exe\" -d \"%s\"' % (self.lzop_path, os.path.join(self.folder_name, item)),
                     shell=True)
                 os.remove(os.path.join(self.folder_name, item))
         self.files = ls_file(self.folder_name)
@@ -121,13 +119,13 @@ class CData:
 
         rf_yml_file_name = ''
         for item in files:
-            if 'rf.yml' in item:
+            if 'rf.yml' in item:  # Checks the YAML file for the RF data, not the B-mode
                 rf_yml_file_name = item.title()
         with open(os.path.join(folder_path, rf_yml_file_name)) as file:
             yaml_info = yaml.safe_load(file)
         return yaml_info
 
-        # Generates a name for the calibration file by looking for 0_54 or 1_30 in the file name. These values come
+    # Generates a name for the calibration file by looking for 0_54 or 1_30 in the file name. These values come
     # from the two different regions of the attenuation phantom. Units: dB/cm/MHz
     def __cal_details(self):
         name = self.stim_filename
@@ -219,15 +217,9 @@ class CData:
     # Checks a lock passed to the function; runs function if it is acquired successfully
     @staticmethod
     def locker(lock, locked_function):
-        acquired = False
-        while not acquired:
-            acquired = lock.acquire()  # lock.acquire automatically waits here until the lock is available
-            try:
-                if acquired:  # Because lock.acquire waits, the try and if aren't really needed, but it makes me happy
-                    locked_function()
-            finally:
-                if acquired:
-                    lock.release()
+        lock.acquire()  # lock.acquire automatically waits here until the lock is available
+        locked_function()  # This is the function which is run on only one thread at a time.
+        lock.release()
 
     # Searches the calibration library to check if the data has already been captured
     def check_cal_lib(self, cal_lib_path, delta=0.5):
@@ -264,12 +256,14 @@ class CData:
 
     # Copies calibration files . Ensures the proper organization of folders. Avoids copying duplicates.
     def __copy_cal_files(self, depth_val, cal_lib_path):
+        # Adding "D" before depth avoids partial matches. EG 30.0 is part of 130.0, but D30.0 is not part of D130.0
+        depth_string = "D" + str(depth_val)
         cal_folder = os.path.join(self.folder_path, self.cal_folder_name)
         copy_location = os.path.join(self.folder_path, cal_folder)
         self.create_folder(cal_folder)
         for folder in ls_dir(cal_lib_path):
             depth_path = os.path.join(copy_location, self.__remove_file_type(self.filename))
-            if depth_val in folder and not os.path.exists(depth_path):
+            if depth_string in folder and not os.path.exists(depth_path):
                 shutil.copytree(os.path.join(cal_lib_path, folder), depth_path)
 
     @staticmethod
