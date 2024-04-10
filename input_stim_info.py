@@ -36,9 +36,10 @@ class participant_Data:
         self.site_num.create_label("Enter Site Number: ")
         self.site_num.create_entry("05")
 
+        mat_id = self.__read_folder_path("MaternalID")
         self.mat_id = InfoFields(self.window, self.site_num.next_row())
         self.mat_id.create_label("Maternal ID: ")
-        self.mat_id.create_entry("STIM000")
+        self.mat_id.create_entry(mat_id)
 
         self.gest_age = InfoFields(self.window, self.mat_id.next_row())
         self.gest_age.create_label("Gestational Age: ")
@@ -82,28 +83,40 @@ class participant_Data:
         info_fields.entry.unbind("<FocusIn>")
         self.__record_folder_paths()
 
-    # Creates and updates a json file to store the file locations used in the app
+    # Creates and updates a json file to store the file locations used in the app. When the entries are first created
     def __record_folder_paths(self):
-        folder_data = {}
+        json_entry_data = {}
+
         participant_key = "ParticipantFolder"
         try:
             participant_folder = self.scan_folder_path.entry.get()
-        except AttributeError:  # AttributeError is throw when no json file exists because entry is not yet created
+        # AttributeError is throw when the GUI is opened, the entry is blank, and no json file exists
+        except AttributeError:
             participant_folder = ''
-        folder_data[participant_key] = participant_folder
+        json_entry_data[participant_key] = participant_folder
 
         calibration_key = "CalibrationFolder"
         try:
             calibration_folder = self.cal_lib_browse.entry.get()
-        except AttributeError:  # AttributeError is throw when no json file exists because entry is not yet created
+        # AttributeError is throw when the GUI is opened, the entry is blank, and no json file exists
+        except AttributeError:
             calibration_folder = ''
-        folder_data[calibration_key] = calibration_folder
+        json_entry_data[calibration_key] = calibration_folder
 
-        folder_json = json.dumps(folder_data)
+        maternal_id_key = "MaternalID"
+        try:
+            maternal_id = self.mat_id.entry.get()
+            # AttributeError is throw when the GUI is opened, the entry is blank, and no json file exists
+        except AttributeError:
+            maternal_id = 'STIM000'
+        json_entry_data[maternal_id_key] = maternal_id
+
+        json_entries = json.dumps(json_entry_data)
 
         with open(self.scan_json, 'w') as json_file:
-            json_file.write(folder_json)
+            json_file.write(json_entries)
 
+    #  Reads json info to populate the GUI entries on start up
     def __read_folder_path(self, key):
         if not os.path.isfile(self.scan_json):
             self.__record_folder_paths()
