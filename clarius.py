@@ -22,9 +22,12 @@ class CData:
         self.project_site, self.maternal_id, self.gestational_age, self.image_num = \
             stim_info["project_site"], stim_info["maternal_id"], stim_info["gestational_age"], stim_info["image_num"]
         self.fetal_num = stim_info["fetal_num"]
-        self.stim_filename = "_".join([self.project_site, self.maternal_id, self.fetal_num, self.gestational_age,
-                                       self.__remove_file_type(self.filename), self.image_num])
+        self.stim_filename = self.__remove_file_type(self.filename)
+        if stim_info["rename_folders_cb"]:
+            self.stim_filename = "_".join([self.project_site, self.maternal_id, self.fetal_num, self.gestational_age,
+                                           self.__remove_file_type(self.filename), self.image_num])
         self.folder_name = os.path.join(self.folder_path, self.stim_filename)
+        print(self.stim_filename)
         shutil.unpack_archive(os.path.join(self.folder_path, filename), self.folder_name)  # unzips the .tar files
         self.cal_folder_name = "Ultrasound Calibration Data"
         self.cal_csv_name = "Ultrasound Depth and Focus"
@@ -130,7 +133,7 @@ class CData:
     def __cal_details(self):
         name = self.stim_filename
         yaml_info = self.__yaml_info()
-        atn0, atn1, atn2 = '0_00', '0_54', '1_30'
+        atn0, atn1, atn2 = '0_00', '0_50', '1_20'
         attenuation = atn0
         if atn1 in name:
             attenuation = atn1
@@ -195,12 +198,12 @@ class CData:
     # Adds a new line to a CSV file. If this is the first line added to the CSV, it creates headers.
     def __add_cal_line(self, file_name):
         if not os.path.exists(file_name):  # If this is the first line added, it also creates headers
-            header_vals = ["Scan name", "Depth", "Focus"]
+            header_vals = ["Scan name", "Depth", "Focus", "Transmit Freq"]
             self.new_csv_line(file_name, header_vals, 'w')
             self.new_csv_line(file_name[:-4] + " Not Found.csv", header_vals, 'w')  # This folder might remain empty
         yaml_info = self.__yaml_info()
-        depth, focus = yaml_info["imaging depth"], yaml_info["focal depth"]
-        csv_cal_vals = [self.__remove_file_type(self.filename), self.__remove_mm(depth), self.__remove_mm(focus)]
+        depth, focus, freq = yaml_info["imaging depth"], yaml_info["focal depth"], yaml_info["transmit frequency"][0:-4]
+        csv_cal_vals = [self.__remove_file_type(self.filename), self.__remove_mm(depth), self.__remove_mm(focus), freq]
 
         # One thread runs this lineat a time. Prevents writing to a file that is open by another program.
         self.locker(self.cal_lock, lambda: self.new_csv_line(file_name, csv_cal_vals))  # This runs self.new_csv_line
@@ -236,17 +239,17 @@ class CData:
                 continue  # Skips this loop because a non-number (such as a title) is being compared
             # Finds the closest calibration data that is within the threshold of less than delta (0.5 mm by default)
             if difference <= delta and difference < min_diff:
-                # Finds the frequency of the calibration data currently being seached to ensure it matches
-                # The transmit frequency changes from 4.0 HMz to 2.5 MHz when the depth raises past 100mm
-                calibration_folder = os.path.join(cal_lib_path, lib_search, "0_54")
-                calibration_freq = self.__yaml_info(calibration_folder)["transmit frequency"]
-                if self.transmit_freq() == calibration_freq:  # Only record depth if frequency is correct
+                # This IF statment finds the frequency of the calibration data currently being seached to ensure it
+                # matches the frequency of the participant scan. The transmit frequency changes from 4.0 HMz to 2.5
+                # MHz when the depth raises past 100mm and back to 2.5MHz at 190mm
+                calibration_folder = os.path.join(cal_lib_path, lib_search)  # First find the cal folder
+                attenuation_folder = os.path.join(calibration_folder, os.listdir(calibration_folder)[0])
+
+                if self.freq_match(attenuation_folder) and self.focus_match(attenuation_folder):
                     min_diff = difference
                     closest_value = difference, lib_search_depth
-                else:
-                    print(f"{calibration_freq} != {self.transmit_freq()}")
 
-        if not closest_value:  # If no calibration value within delta of the measured value, add it to list of not found
+        if not closest_value:  # If no calibration value within delta of the measured value, add it the of not found CSV
             csv_title = self.cal_csv_name + " Not Found"
             cal_folder = os.path.join(self.folder_path, self.cal_folder_name)
             file_name = os.path.join(cal_folder, csv_title + ".csv")
@@ -266,6 +269,7 @@ class CData:
             if depth_string in folder and not os.path.exists(depth_path):
                 shutil.copytree(os.path.join(cal_lib_path, folder), depth_path)
 
+    # Deletes old CSV files so new information can replace them.
     @staticmethod
     def csv_cleanup(scan_folder_path):
         cal_csv_name = "Ultrasound Depth and Focus"
@@ -315,3 +319,26 @@ class CData:
 
     def transmit_freq(self):
         return self.__yaml_info()["transmit frequency"]
+
+    def focal_depth(self):
+        return self.__yaml_info()["focal depth"]
+
+    # Compares the transmit frequency of the RF data witht the transmit frequency of the calibration data.
+    def freq_match(self, attenuation_folder):
+        calibration_freq = self.__yaml_info(attenuation_folder)["transmit frequency"]  # Freq of the cal data
+        if self.transmit_freq() == calibration_freq:  # Only record depth if frequency is correct
+            return True
+        else:
+            print(f"Freq: RF = {self.transmit_freq()}, Cal = {calibration_freq}")
+            return False
+
+    # Compares the focus value of the RF data with the focus value of the calibration data. This should only really
+    # return Flase if the default settings were changed on the Clarius. Focus should be 1/2 of the depth by default.
+    def focus_match(self, attenuation_folder):
+        tolerance_factor = 1.05  # Focus and depth values are rounded so this allows for some wiggle room
+        focus = self.__yaml_info(attenuation_folder)["focal depth"]
+        if abs(float(self.__remove_mm(self.focal_depth())) / float(self.__remove_mm(focus))) < tolerance_factor:
+            return True
+        else:
+            print(f"Focus: RF = {self.focal_depth()}, Cal = {focus}")
+            return False

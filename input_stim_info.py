@@ -55,7 +55,7 @@ class participant_Data:
 
         cb_col = 0
         self.calibration_cb = InfoFields(self.window, self.im_num.next_row())
-        self.calibration_cb.create_check_box("Search Calibration Library", False,
+        self.calibration_cb.create_check_box("Search Calibration Library", True,
                                              lambda: self.__grey_out(self.calibration_cb, self.cal_lib_browse), cb_col)
 
         self.collecting_cal_data = InfoFields(self.window, self.im_num.next_row())
@@ -69,6 +69,9 @@ class participant_Data:
         self.cal_lib_browse.create_button("Browse for Calibration Library",
                                           lambda: self.__browse_files(self.cal_lib_browse, calibration_folder))
         self.cal_lib_browse.create_entry(self.__read_folder_path("CalibrationFolder"))
+
+        self.rename_folders_cb = InfoFields(self.window, self.calibration_cb.next_row())
+        self.rename_folders_cb.create_check_box("Rename Folders", True, 0, 2)
 
         self.record_button = InfoFields(self.window, self.cal_lib_browse.next_row())
         self.record_button.create_button("Process Participant Data", self.__read_data)
@@ -146,7 +149,7 @@ class participant_Data:
         self.stim_info["cal_lib_path"] = self.__get_cal_path()
         self.stim_info["b-mode_plot"] = self.bmode_cb.get_cb()
         self.stim_info["collecting_cal_data"] = self.collecting_cal_data.get_cb()
-        # self.stim_info["raw_or_rend"] = "raw"  # Clarius only stores raw images for now, this may change later
+        self.stim_info["rename_folders_cb"] = self.rename_folders_cb.get_cb()
 
         if self.__check_stim_info():
             print(f"\nProcessing {self.stim_info['maternal_id']}\n")
@@ -264,8 +267,6 @@ def tar_processing(stim_info):
     for scan_title in file_list:
         if '.tar' in scan_title:
             cdata = cl.CData(scan_folder_path, scan_title, stim_info)
-            # if scan_count == 0:  # Delete old files on the first loop. Need CData object to be created first
-            #     cdata.csv_cleanup(scan_folder_path)
 
             # Determinte which functions are run based on which check boxes are selected
             if stim_info["collecting_cal_data"]:
