@@ -19,16 +19,26 @@ class CData:
         self.folder_path = folder_path
         self.filename = filename
         self.lzop_path = lzop_path
-        self.project_site, self.maternal_id, self.gestational_age, self.image_num = \
-            stim_info["project_site"], stim_info["maternal_id"], stim_info["gestational_age"], stim_info["image_num"]
-        self.fetal_num = stim_info["fetal_num"]
-        self.stim_filename = self.__remove_file_type(self.filename)
+
         if stim_info["rename_folders_cb"]:
+            self.project_site, self.maternal_id, self.gestational_age, self.image_num = \
+                stim_info["project_site"], stim_info["maternal_id"], stim_info["gestational_age"], stim_info["image_num"]
+            self.fetal_num = stim_info["fetal_num"]
+
             self.stim_filename = "_".join([self.project_site, self.maternal_id, self.fetal_num, self.gestational_age,
                                            self.__remove_file_type(self.filename), self.image_num])
+
+        if not stim_info["rename_folders_cb"]:
+            self.stim_filename = self.__remove_file_type(self.filename)
+            # self.stim_filename = self.filename  # Replace the previous line with this to process .dir instead of .tar
+
         self.folder_name = os.path.join(self.folder_path, self.stim_filename)
         print(self.stim_filename)
+        print(f"folder_name: {self.folder_name}")
+
+        # Comment out this line with this to process .dir instead of .tar
         shutil.unpack_archive(os.path.join(self.folder_path, filename), self.folder_name)  # unzips the .tar files
+
         self.cal_folder_name = "Ultrasound Calibration Data"
         self.cal_csv_name = "Ultrasound Depth and Focus"
         self.files = ls_file(self.folder_name)
@@ -128,10 +138,10 @@ class CData:
             yaml_info = yaml.safe_load(file)
         return yaml_info
 
-    # Generates a name for the calibration file by looking for 0_54 or 1_30 in the file name. These values come
+    # Generates a name for the calibration file by looking for 0_50 or 1_20 in the file name. These values come
     # from the two different regions of the attenuation phantom. Units: dB/cm/MHz
     def __cal_details(self):
-        name = self.stim_filename
+        name = self.filename
         yaml_info = self.__yaml_info()
         atn0, atn1, atn2 = '0_00', '0_50', '1_20'
         attenuation = atn0
@@ -149,10 +159,10 @@ class CData:
         self.__cal_tgc()
         self.__cal_yaml()
 
-    # searches for the strings found in the list called search. If a files contains one of these strings,
-    # it is copied and labeled with the calibration information
-    # Search must be a list even if it is size one
-    def __cal_copy(self, search):
+    # Copies calibration files captured directly from the calibration phantom. Searches for the strings found in the
+    # list called search. If a files contains one of these strings, it is copied and labeled with the calibration
+    # information The variable search must be a list even if it is size one
+    def __cal_phantom_copy(self, search):
         filename, attenuation = self.__cal_details()
         cal_path = os.path.join(self.folder_path, "Ultrasound Calibration Phantom")
         filename_path = os.path.join(cal_path, filename)
@@ -168,15 +178,15 @@ class CData:
 
     #  Copy yml files and renames them to match the calibration file with depth, focus, and attenuation values
     def __cal_raw(self):
-        self.__cal_copy(["rf.raw", "env.raw"])
+        self.__cal_phantom_copy(["rf.raw", "env.raw"])
 
     # Copy yml files and renames them to match the calibration file with depth, focus, and attenuation values
     def __cal_yaml(self):
-        self.__cal_copy(["rf.yml", "env.yml"])
+        self.__cal_phantom_copy(["rf.yml", "env.yml"])
 
     # Copy tgc files and renames them to match the calibration file with depth, focus, and attenuation values
     def __cal_tgc(self):
-        self.__cal_copy(["env.tgc"])
+        self.__cal_phantom_copy(["env.tgc"])
 
     # Creates a .CSV file for calibration purposes. Generates the filename based on the depth, focus, and
     # attenuation values of the scan. Attenuation is read from the file name. Ensure 0_54 or 1_30 is
@@ -225,7 +235,7 @@ class CData:
         lock.release()
 
     # Searches the calibration library to check if the data has already been captured
-    def check_cal_lib(self, cal_lib_path, delta=0.5):
+    def check_cal_lib(self, cal_lib_path, delta=1.0):
         depth = self.__remove_mm(self.__yaml_info()['imaging depth'])
         depth_lib = ls_dir(cal_lib_path)
         closest_value = []
@@ -257,15 +267,18 @@ class CData:
         else:
             self.__copy_cal_files(closest_value[1], cal_lib_path)
 
-    # Copies calibration files . Ensures the proper organization of folders. Avoids copying duplicates.
+    # Copies calibration files. Ensures the proper organization of folders. Avoids copying duplicates.
     def __copy_cal_files(self, depth_val, cal_lib_path):
         # Adding "D" before depth avoids partial matches. EG 30.0 is part of 130.0, but D30.0 is not part of D130.0
         depth_string = "D" + str(depth_val)
         cal_folder = os.path.join(self.folder_path, self.cal_folder_name)
         copy_location = os.path.join(self.folder_path, cal_folder)
         self.create_folder(cal_folder)
+
+        depth_path = os.path.join(copy_location, self.__remove_file_type(self.filename))
+        if os.path.exists(depth_path):
+            shutil.rmtree(depth_path)
         for folder in ls_dir(cal_lib_path):
-            depth_path = os.path.join(copy_location, self.__remove_file_type(self.filename))
             if depth_string in folder and not os.path.exists(depth_path):
                 shutil.copytree(os.path.join(cal_lib_path, folder), depth_path)
 
@@ -323,6 +336,9 @@ class CData:
     def focal_depth(self):
         return self.__yaml_info()["focal depth"]
 
+    def imaging_depth(self):
+        return self.__yaml_info()['imaging depth']
+
     # Compares the transmit frequency of the RF data witht the transmit frequency of the calibration data.
     def freq_match(self, attenuation_folder):
         calibration_freq = self.__yaml_info(attenuation_folder)["transmit frequency"]  # Freq of the cal data
@@ -335,10 +351,10 @@ class CData:
     # Compares the focus value of the RF data with the focus value of the calibration data. This should only really
     # return Flase if the default settings were changed on the Clarius. Focus should be 1/2 of the depth by default.
     def focus_match(self, attenuation_folder):
-        tolerance_factor = 1.05  # Focus and depth values are rounded so this allows for some wiggle room
-        focus = self.__yaml_info(attenuation_folder)["focal depth"]
-        if abs(float(self.__remove_mm(self.focal_depth())) / float(self.__remove_mm(focus))) < tolerance_factor:
+        tolerance_factor = 0.05  # Focus and depth values are rounded so this allows for some wiggle room
+        cal_focus = self.__yaml_info(attenuation_folder)["focal depth"]
+        if abs(float(self.__remove_mm(self.focal_depth())) / float(self.__remove_mm(cal_focus)) - 1) < tolerance_factor:
             return True
         else:
-            print(f"Focus: RF = {self.focal_depth()}, Cal = {focus}")
+            print(f"Focus: RF = {self.focal_depth()}, Cal = {cal_focus}")
             return False

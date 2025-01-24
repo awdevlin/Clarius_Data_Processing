@@ -307,6 +307,9 @@ def multi_processing(stim_info):
     cl.CData.csv_cleanup(scan_folder_path)  # Delete old csv files so new ones can be updated
     all_files = cl.ls_file(scan_folder_path)
     tar_files = [file for file in all_files if ".tar" in file]  # Remove files that are not .tar format
+
+    tar_files = os.listdir(scan_folder_path)
+
     thread_count = len(tar_files)
     if stim_info["b-mode_plot"] == 1 or stim_info["collecting_cal_data"]:
         thread_count = 1  # Plots and calibration data are not threadsafe so a single thread is required
